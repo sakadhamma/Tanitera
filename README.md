@@ -2,7 +2,7 @@
 
 **Menanam Harapan, Menuai Kesejahteraan**
 
-Tanitera menghubungkan dapur SPPG (Satuan Pelayanan Pemenuhan Gizi) program Makan Bergizi Gratis (MBG) langsung dengan petani lokal lewat WhatsApp, anpa aplikasi baru dan tanpa perantara distributor besar di luar kota. SPPG memposting kebutuhan bahan, petani membalas dengan bahasa sehari-hari, AI membaca dan meranking penawaran, dan penjemputan akan diatur oleh SPPG.
+Tanitera menghubungkan dapur SPPG (Satuan Pelayanan Pemenuhan Gizi) program Makan Bergizi Gratis (MBG) langsung dengan petani lokal lewat WhatsApp, anpa aplikasi baru dan tanpa perantara distributor besar di luar kota. SPPG memposting kebutuhan bahan, petani membalas dengan format yang telah disediakan, AI membaca dan meranking penawaran, dan penjemputan akan diatur oleh SPPG.
 
 🔗 **Live demo:** [tanitera.vercel.app](https://tanitera.vercel.app)
 
@@ -23,7 +23,7 @@ Tanitera membalik alurnya: **SPPG posting kebutuhan → petani balas lewat Whats
 - **Landing page**: perkenalan produk, alur kerja, dan value proposition
 - **Dashboard SPPG**: input menu & jumlah porsi, kirim permintaan bahan ke petani (per bahan atau sekaligus), lihat balasan masuk secara real-time, dan ranking petani otomatis
 - **Mode Simulasi & Live**: mode simulasi berjalan sepenuhnya di browser tanpa API key (aman untuk demo tanpa koneksi/API), mode live terhubung ke Supabase + WhatsApp (Fonnte) + Gemini sungguhan
-- **Parser AI (Gemini)**: membaca balasan WhatsApp petani dalam bahasa santai/typo/multi-item dan mengubahnya jadi data terstruktur (bahan, jumlah, harga), dengan regex fallback jika API AI gagal
+- **Parser AI (Gemini)**: membaca balasan WhatsApp petani dan mengubahnya jadi data terstruktur (bahan, jumlah, harga), dengan regex fallback jika API AI gagal
 - **Ranking otomatis**: skor gabungan jarak (40%, dihitung PostGIS), harga (35%, rasio ke termurah), dan reliabilitas petani (25%), dengan hard filter untuk penawaran di atas harga distributor
 - **Konfirmasi partial**: SPPG bisa mengonfirmasi sebagian dari jumlah yang ditawarkan petani, bukan hanya semua atau tidak sama sekali
 - **Halaman kelola petani**: CRUD data petani (nama, nomor WA, kecamatan, komoditas)
@@ -59,7 +59,7 @@ Perhitungan ini berjalan di dalam Postgres (view SQL) untuk mode Live. Dashboard
 ## Cara Kerja
 
 1. **SPPG posting kebutuhan** —> input menu & jumlah porsi, sistem menghitung kebutuhan bahan dan mengirim WhatsApp ke petani terdaftar di sekitar dapur (radius PostGIS)
-2. **Petani balas via WhatsApp** —> tanpa install app baru, cukup balas dengan bahasa sehari-hari
+2. **Petani balas via WhatsApp** —> tanpa install app baru
 3. **AI proses & rangking** —> balasan diubah menjadi data terstruktur oleh Gemini, lalu dirangking otomatis berdasarkan jarak, harga, dan reliabilitas
 4. **Konfirmasi & logistik** —> SPPG konfirmasi satu klik, koperasi/Gapoktan mengatur jadwal dan titik jemput
 
@@ -173,7 +173,7 @@ curl -X POST https://api.fonnte.com/send \
 
 ## Deploy
 
-Proyek ini siap deploy langsung ke [Vercel](https://vercel.com) -> import repo, tambahkan environment variables di atas, deploy. Next.js App Router menangani halaman statis dan API routes serverless dalam satu deployment yang sama.
+Proyek ini siap deploy langsung ke [Vercel](https://vercel.com), import repo, tambahkan environment variables di atas, deploy. Next.js App Router menangani halaman statis dan API routes serverless dalam satu deployment yang sama.
 
 ## Mode Simulasi vs Live
 
