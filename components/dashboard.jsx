@@ -377,7 +377,7 @@ export default function Dashboard() {
     ? ((ingredient.distributorPrice - avgLocal) / ingredient.distributorPrice) * 100 : 0;
   const demandMet = totalQty >= demandSafe;
 
-  const toggleConfirm = async (row) => {
+  const toggleConfirm = async (row, confirmedQty) => {
     const id = ingredient.id;
     const already = confirmedList.includes(row.key);
     if (mode === "live") {
@@ -385,7 +385,7 @@ export default function Dashboard() {
       const res = await fetch("/api/applications/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ applicationId: row.appId, qty }),
+        body: JSON.stringify({ applicationId: row.appId, qty: confirmedQty }),
       });
       if (res.ok) setConfirmedKeys((s) => ({ ...s, [id]: [...(s[id] || []), row.key] }));
       return;
