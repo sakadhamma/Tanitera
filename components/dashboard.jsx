@@ -5,47 +5,64 @@ import { useRouter } from "next/navigation";
 import {
   Sprout, MapPin, Send, Sparkles, CheckCircle2, ArrowLeft, MessageCircle,
   Radio, RotateCcw, Users, Wheat, Plus, Trash2, Pencil, Truck, XCircle,
-  HelpCircle, Zap, FlaskConical, AlertTriangle,
+  HelpCircle, Zap, FlaskConical, AlertTriangle, UtensilsCrossed, UserPlus,
 } from "lucide-react";
 import {
   FARMER_PROFILES, DEFAULT_INGREDIENTS, UNITS, LOGISTICS,
   getRepliesFor, staggerDelay, shuffle, slugify, fmtRp, strToSeed,
 } from "@/lib/sim";
+import { MENU_PRESETS } from "@/lib/menus";
 import { supabaseBrowser } from "@/lib/supabase";
 
 const MAXKM = 30, R = 160, CX = 200, CY = 200;
+const STORE_KEY = "tsppg_state_v3";
 const angleFor = (f) => f.angle ?? Math.abs(strToSeed(String(f.id))) % 360;
 const pos = (f) => {
   const r = Math.min((f.distanceKm ?? MAXKM) / MAXKM, 1) * R;
   const rad = (angleFor(f) * Math.PI) / 180;
   return { x: CX + r * Math.cos(rad), y: CY + r * Math.sin(rad) };
 };
+const stableId = (name) =>
+  name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || slugify(name);
 
 export default function Dashboard() {
   const router = useRouter();
   const supabase = supabaseBrowser();
 
+  const [hydrated, setHydrated] = useState(false);
+  const [gateOk, setGateOk] = useState(false);
   const [ingredients, setIngredients] = useState(DEFAULT_INGREDIENTS);
   const [activeIng, setActiveIng] = useState(DEFAULT_INGREDIENTS[0].id);
   const [mode, setMode] = useState(
-    process.env.NEXT_PUBLIC_DEFAULT_MODE === "live" ? "live" : "sim"
+    process.env.NEXT_PUBLIC_DEFAULT_MODE === "sim" ? "sim" : "live"
   );
-  const [status, setStatus] = useState({});      // id -> idle|sending|receiving|done|error
-  const [replies, setReplies] = useState({});    // id -> [{kind, farmer, qty, harga, text, key, appId?}]
-  const [liveRanked, setLiveRanked] = useState({}); // id -> rows from ranked_applications
-  const [confirmedKeys, setConfirmedKeys] = useState({}); // id -> [rowKey]
+  const [status, setStatus] = useState({});
+  const [replies, setReplies] = useState({});
+  const [liveRanked, setLiveRanked] = useState({});
+  const [confirmedKeys, setConfirmedKeys] = useState({});
   const [resetHint, setResetHint] = useState({});
   const [errMsg, setErrMsg] = useState({});
   const [showAdd, setShowAdd] = useState(false);
+  const [menuSel, setMenuSel] = useState(MENU_PRESETS[0].id);
   const [form, setForm] = useState({ name: "", unit: "kg", demand: "", distributorPrice: "", tag: "" });
 
-  const timersRef = useRef({});    // [FIX] id -> timeout[]
-  const channelsRef = useRef({});  // id -> supabase channel
-  const liveItemsRef = useRef({}); // id -> demand_item_id
+  const timersRef = useRef({});
+  const channelsRef = useRef({});
+  const liveItemsRef = useRef({});
+  const liveDemandsRef = useRef({});
 
   const ingredient = ingredients.find((i) => i.id === activeIng) || ingredients[0];
 
-  /* ---------- housekeeping ---------- */
+  // pin gate
+  useEffect(() => {
+    const pin = process.env.NEXT_PUBLIC_DEMO_PIN || "";
+    if (pin && typeof window !== "undefined" && localStorage.getItem("tsppg_unlocked") !== "1") {
+      router.replace("/login");
+      return;
+    }
+    setGateOk(true);
+  }, [router]);
+
   const clearTimersFor = useCallback((id) => {
     (timersRef.current[id] || []).forEach(clearTimeout);
     timersRef.current[id] = [];
@@ -62,6 +79,8 @@ export default function Dashboard() {
   const resetIngredient = useCallback((id, keepHint = false) => {
     clearTimersFor(id);
     closeChannelFor(id);
+    delete liveItemsRef.current[id];
+    delete liveDemandsRef.current[id];
     setStatus((s) => ({ ...s, [id]: "idle" }));
     setReplies((s) => ({ ...s, [id]: [] }));
     setLiveRanked((s) => ({ ...s, [id]: [] }));
@@ -70,7 +89,99 @@ export default function Dashboard() {
     if (!keepHint) setResetHint((s) => ({ ...s, [id]: false }));
   }, [clearTimersFor, closeChannelFor]);
 
-  /* ---------- SIM broadcast ---------- */
+  // live refetch
+  const refetchLive = useCallback(async (id, itemId, demandId) => {
+    if (!supabase) return;
+    const [{ data: ranked }, { data: inbound }] = await Promise.all([
+      supabase.from("ranked_applications").select("*").eq("demand_item_id", itemId),
+      supabase.from("wa_inbound_log")
+        .select("id, raw_message, intent, parsed_items, received_at, farmers(name, kecamatan)")
+        .eq("demand_id", demandId)
+        .order("received_at", { ascending: false }),
+    ]);
+    const rows = (ranked || [])
+      .map((r) => ({
+        key: r.application_id, appId: r.application_id,
+        farmer: {
+          id: r.farmer_id, name: r.farmer_name, desa: r.kecamatan || r.gapoktan || "—",
+          distanceKm: Math.round(r.distance_km * 10) / 10,
+          reliability: Math.round(r.reliability_score * 100),
+        },
+        qty: r.offered_qty_kg, harga: r.price_per_kg, text: r.raw_message,
+        score: r.match_score, dbStatus: r.status, overBudget: r.over_budget,
+      }))
+      .sort((a, b) => b.score - a.score);
+    setLiveRanked((s) => ({ ...s, [id]: rows }));
+    setConfirmedKeys((s) => ({
+      ...s,
+      [id]: rows.filter((r) => r.dbStatus === "accepted").map((r) => r.key),
+    }));
+    setReplies((s) => ({
+      ...s,
+      [id]: (inbound || []).map((m) => ({
+        kind: m.intent === "offer" ? "offer" : m.intent === "decline" ? "decline" : "unclear",
+        farmer: { id: "in" + m.id, name: m.farmers?.name || "Petani", desa: m.farmers?.kecamatan || "" },
+        items: Array.isArray(m.parsed_items) ? m.parsed_items : [],
+        qty: null, harga: null, text: m.raw_message, key: "in" + m.id,
+      })),
+    }));
+  }, [supabase]);
+
+  const subscribeLive = useCallback((id, itemId, demandId) => {
+    if (!supabase) return;
+    closeChannelFor(id);
+    const ch = supabase
+      .channel("live-" + id + "-" + itemId.slice(0, 8))
+      .on("postgres_changes",
+        { event: "*", schema: "public", table: "applications", filter: `demand_item_id=eq.${itemId}` },
+        () => refetchLive(id, itemId, demandId))
+      .on("postgres_changes",
+        { event: "INSERT", schema: "public", table: "wa_inbound_log", filter: `demand_id=eq.${demandId}` },
+        () => refetchLive(id, itemId, demandId))
+      .subscribe();
+    channelsRef.current[id] = ch;
+  }, [supabase, closeChannelFor, refetchLive]);
+
+  // one blast for one / many ingredients with the same endpoints
+  const broadcastLive = useCallback(async (ings) => {
+    if (!supabase) {
+      ings.forEach((ing) => {
+        setErrMsg((s) => ({ ...s, [ing.id]: "Supabase belum dikonfigurasi (.env.local) — pakai mode Simulasi dulu." }));
+        setStatus((s) => ({ ...s, [ing.id]: "error" }));
+      });
+      return;
+    }
+    ings.forEach((ing) => { resetIngredient(ing.id); setStatus((s) => ({ ...s, [ing.id]: "sending" })); });
+    try {
+      const res = await fetch("/api/wa/blast", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          items: ings.map((i) => ({
+            commodity: i.name, qty: i.demand, unit: i.unit, maxPrice: i.distributorPrice,
+          })),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Blast gagal");
+      for (const ing of ings) {
+        const match = (data.items || []).find((it) => it.commodity === ing.name.trim().toLowerCase());
+        if (!match) continue;
+        liveItemsRef.current[ing.id] = match.demandItemId;
+        liveDemandsRef.current[ing.id] = data.demandId;
+        setStatus((s) => ({ ...s, [ing.id]: "receiving" }));
+        subscribeLive(ing.id, match.demandItemId, data.demandId);
+        refetchLive(ing.id, match.demandItemId, data.demandId);
+      }
+    } catch (e) {
+      ings.forEach((ing) => {
+        setErrMsg((s) => ({ ...s, [ing.id]: String(e.message || e) }));
+        setStatus((s) => ({ ...s, [ing.id]: "error" }));
+      });
+    }
+  }, [supabase, resetIngredient, subscribeLive, refetchLive]);
+
+  // simulation
   const broadcastSim = useCallback((ing) => {
     const id = ing.id;
     resetIngredient(id);
@@ -93,89 +204,60 @@ export default function Dashboard() {
     timersRef.current[id] = [t0];
   }, [resetIngredient]);
 
-  /* ---------- LIVE broadcast ---------- */
-  const refetchLive = useCallback(async (id, itemId) => {
-    if (!supabase) return;
-    const [{ data: ranked }, { data: inbound }] = await Promise.all([
-      supabase.from("ranked_applications").select("*").eq("demand_item_id", itemId),
-      supabase.from("wa_inbound_log")
-      .select("id, raw_message, intent, offered_qty_kg, price_per_kg, received_at, farmers(name, kecamatan)")
-      .eq("demand_item_id", itemId)
-      .order("received_at", { ascending: false }),
-    ]);
-    const rows = (ranked || [])
-      .map((r) => ({
-        key: r.application_id, appId: r.application_id,
-        farmer: {
-          id: r.farmer_id, name: r.farmer_name, desa: r.kecamatan || r.gapoktan || "—",
-          distanceKm: Math.round(r.distance_km * 10) / 10,
-          reliability: Math.round(r.reliability_score * 100),
-        },
-        qty: r.offered_qty_kg, harga: r.price_per_kg, text: r.raw_message,
-        score: r.match_score, dbStatus: r.status,
-      }))
-      .sort((a, b) => b.score - a.score);
-    setLiveRanked((s) => ({ ...s, [id]: rows }));
-    setConfirmedKeys((s) => ({
-      ...s,
-      [id]: rows.filter((r) => r.dbStatus === "accepted").map((r) => r.key),
-    }));
-    setReplies((s) => ({
-      ...s,
-      [id]: (inbound || []).map((m) => ({
-        kind: m.intent === "offer" ? "offer" : m.intent === "decline" ? "decline" : "unclear",
-        farmer: { id: "in" + m.id, name: m.farmers?.name || "Petani", desa: m.farmers?.kecamatan || "" },
-        qty: m.offered_qty_kg, harga: m.price_per_kg, text: m.raw_message, key: "in" + m.id,
-      })),
-    }));
+  const broadcastOne = (ing) => mode === "live" ? broadcastLive([ing]) : broadcastSim(ing);
+  const broadcastAll = () => mode === "live"
+    ? broadcastLive(ingredients)
+    : ingredients.forEach(broadcastSim);
 
-  }, [supabase]);
-
-  const broadcastLive = useCallback(async (ing) => {
-    const id = ing.id;
-    if (!supabase) {
-      setErrMsg((s) => ({ ...s, [id]: "Supabase belum dikonfigurasi (.env.local) — pakai mode Simulasi dulu." }));
-      setStatus((s) => ({ ...s, [id]: "error" }));
-      return;
-    }
-    resetIngredient(id);
-    setStatus((s) => ({ ...s, [id]: "sending" }));
+  // save state
+  useEffect(() => {
     try {
-      const res = await fetch("/api/wa/blast", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ commodity: ing.name, qty: ing.demand, unit: ing.unit }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Blast gagal");
-      liveItemsRef.current[id] = data.demandItemId;
-      setStatus((s) => ({ ...s, [id]: "receiving" }));
+      const raw = localStorage.getItem(STORE_KEY);
+      if (raw) {
+        const s = JSON.parse(raw);
+        if (Array.isArray(s.ingredients) && s.ingredients.length) setIngredients(s.ingredients);
+        if (s.activeIng) setActiveIng(s.activeIng);
+        if (s.mode) setMode(s.mode);
+        if (s.replies) setReplies(s.replies);
+        if (s.confirmedKeys) setConfirmedKeys(s.confirmedKeys);
+        liveItemsRef.current = s.liveItems || {};
+        liveDemandsRef.current = s.liveDemands || {};
+        const st = {};
+        for (const [id, v] of Object.entries(s.status || {})) {
+          st[id] = s.mode === "sim" && (v === "sending" || v === "receiving") ? "idle" : v;
+        }
+        setStatus(st);
+      }
+    } catch { /* corrupt state → start fresh */ }
+    setHydrated(true);
+  }, []);
 
-      const ch = supabase
-        .channel("live-" + id)
-        .on("postgres_changes",
-          { event: "*", schema: "public", table: "applications", filter: `demand_item_id=eq.${data.demandItemId}` },
-          () => refetchLive(id, data.demandItemId))
-        .on("postgres_changes",
-          { event: "INSERT", schema: "public", table: "wa_inbound_log", filter: `demand_item_id=eq.${data.demandItemId}` },
-          () => refetchLive(id, data.demandItemId))
-        .subscribe();
-      channelsRef.current[id] = ch;
-      refetchLive(id, data.demandItemId);
-    } catch (e) {
-      setErrMsg((s) => ({ ...s, [id]: String(e.message || e) }));
-      setStatus((s) => ({ ...s, [id]: "error" }));
+  useEffect(() => {
+    if (!hydrated || !supabase) return;
+    for (const [id, itemId] of Object.entries(liveItemsRef.current)) {
+      const demandId = liveDemandsRef.current[id];
+      if (!itemId || !demandId) continue;
+      subscribeLive(id, itemId, demandId);
+      refetchLive(id, itemId, demandId);
     }
-  }, [supabase, resetIngredient, refetchLive]);
+  }, [hydrated]);
 
-  const broadcast = mode === "live" ? broadcastLive : broadcastSim;
+  useEffect(() => {
+    if (!hydrated) return;
+    try {
+      localStorage.setItem(STORE_KEY, JSON.stringify({
+        ingredients, activeIng, mode, replies, confirmedKeys, status,
+        liveItems: liveItemsRef.current, liveDemands: liveDemandsRef.current,
+      }));
+    } catch { /* storage full/blocked → non-fatal */ }
+  }, [hydrated, ingredients, activeIng, mode, replies, confirmedKeys, status]);
 
-  /* ---------- ingredient CRUD ---------- */
+  // input n update ingredients
   const updateIngredient = (id, patch) => {
     const invalidates = ("distributorPrice" in patch || "unit" in patch);
     const hadReplies = (replies[id] || []).length > 0;
     setIngredients((list) => list.map((i) => (i.id === id ? { ...i, ...patch } : i)));
-    if (invalidates && hadReplies) {           // [FIX] stale offers
+    if (invalidates && hadReplies) {
       resetIngredient(id, true);
       setResetHint((s) => ({ ...s, [id]: true }));
     }
@@ -191,7 +273,8 @@ export default function Dashboard() {
     const demand = Math.max(1, Number(form.demand) || 0);
     const price = Number(form.distributorPrice);
     if (!form.name.trim() || !Number(form.demand) || !price || price <= 0) return;
-    const id = slugify(form.name);
+    const id = stableId(form.name);
+    if (ingredients.some((i) => i.id === id)) { setActiveIng(id); setShowAdd(false); return; }
     setIngredients((list) => [...list, {
       id, name: form.name.trim(), unit: form.unit, demand,
       distributorPrice: price, distributorDays: 3, tag: form.tag.trim() || "Custom",
@@ -200,29 +283,46 @@ export default function Dashboard() {
     setForm({ name: "", unit: "kg", demand: "", distributorPrice: "", tag: "" });
     setShowAdd(false);
   };
+  const loadMenu = () => {
+    const preset = MENU_PRESETS.find((m) => m.id === menuSel);
+    if (!preset) return;
+    Object.keys(timersRef.current).forEach(clearTimersFor);
+    Object.keys(channelsRef.current).forEach(closeChannelFor);
+    liveItemsRef.current = {}; liveDemandsRef.current = {};
+    const items = preset.ingredients.map((ing) => ({
+      ...ing, id: stableId(ing.name), distributorDays: 3,
+    }));
+    setIngredients(items);
+    setActiveIng(items[0].id);
+    setStatus({}); setReplies({}); setLiveRanked({}); setConfirmedKeys({}); setErrMsg({}); setResetHint({});
+  };
 
-  /* ---------- derived rows ---------- */
-  const simRanked = useMemo(() => {
+  // new scoring methods
+  const simScored = useMemo(() => {
     const offers = (replies[ingredient?.id] || []).filter((r) => r.kind === "offer");
-    if (!offers.length) return [];
-    const maxDist = Math.max(...offers.map((a) => a.farmer.distanceKm));
-    const minP = Math.min(...offers.map((a) => a.harga));
-    const maxP = Math.max(...offers.map((a) => a.harga));
-    return offers.map((a) => ({
+    const budget = ingredient?.distributorPrice ?? Infinity;
+    const eligible = offers.filter((o) => o.harga <= budget);
+    const overCount = offers.length - eligible.length;
+    if (!eligible.length) return { ranked: [], overCount };
+    const minP = Math.min(...eligible.map((a) => a.harga));
+    const ranked = eligible.map((a) => ({
       ...a,
       score:
-        (1 - a.farmer.distanceKm / (maxDist || 1)) * 0.4 +
-        (maxP === minP ? 1 : 1 - (a.harga - minP) / (maxP - minP)) * 0.35 +
-        (a.farmer.reliability / 100) * 0.25,
+        0.40 * (1 - Math.min(a.farmer.distanceKm, MAXKM) / MAXKM) +
+        0.35 * (minP / a.harga) +
+        0.25 * (a.farmer.reliability / 100),
     })).sort((a, b) => b.score - a.score);
-  }, [replies, ingredient?.id]);
+    return { ranked, overCount };
+  }, [replies, ingredient?.id, ingredient?.distributorPrice]);
 
-  const ranked = mode === "live" ? (liveRanked[ingredient?.id] || []) : simRanked;
+  const liveRows = liveRanked[ingredient?.id] || [];
+  const ranked = mode === "live" ? liveRows.filter((r) => !r.overBudget) : simScored.ranked;
+  const overCount = mode === "live" ? liveRows.filter((r) => r.overBudget).length : simScored.overCount;
   const tickerItems = replies[ingredient?.id] || [];
   const confirmedList = confirmedKeys[ingredient?.id] || [];
   const confirmedRows = ranked.filter((r) => confirmedList.includes(r.key));
   const totalQty = confirmedRows.reduce((s, r) => s + r.qty, 0);
-  const demandSafe = Math.max(1, ingredient?.demand || 1);   // [FIX] no /0
+  const demandSafe = Math.max(1, ingredient?.demand || 1);
   const progressPct = Math.min(100, (totalQty / demandSafe) * 100);
   const localCost = confirmedRows.reduce((s, r) => s + r.qty * r.harga, 0);
   const avgLocal = totalQty ? localCost / totalQty : 0;
@@ -234,7 +334,7 @@ export default function Dashboard() {
     const id = ingredient.id;
     const already = confirmedList.includes(row.key);
     if (mode === "live") {
-      if (already) return; // live confirmations are final (WA already sent)
+      if (already) return;
       const res = await fetch("/api/applications/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -252,8 +352,9 @@ export default function Dashboard() {
   const aggregate = useMemo(() => {
     let retained = 0, savingsSum = 0, countDone = 0;
     ingredients.forEach((ing) => {
-      const rows = (mode === "live" ? (liveRanked[ing.id] || []) : [])
-        .concat(mode === "sim" ? (replies[ing.id] || []).filter((r) => r.kind === "offer") : []);
+      const rows = mode === "live"
+        ? (liveRanked[ing.id] || []).filter((r) => !r.overBudget)
+        : (replies[ing.id] || []).filter((r) => r.kind === "offer");
       const confirmed = rows.filter((r) => (confirmedKeys[ing.id] || []).includes(r.key));
       const qty = confirmed.reduce((s, r) => s + r.qty, 0);
       if (!qty) return;
@@ -265,8 +366,9 @@ export default function Dashboard() {
     return { retained, avgSavings: countDone ? savingsSum / countDone : 0, countDone };
   }, [ingredients, replies, liveRanked, confirmedKeys, mode]);
 
-  if (!ingredient) return null;
+  if (!gateOk || !hydrated || !ingredient) return null;
   const st = status[ingredient.id] || "idle";
+  const anyBusy = ingredients.some((i) => ["sending", "receiving"].includes(status[i.id]));
   const offerCount = tickerItems.filter((t) => t.kind === "offer").length;
   const repliedFarmerIds = new Set(tickerItems.filter((t) => t.kind === "offer").map((t) => t.farmer.id));
   const confirmedFarmerIds = new Set(confirmedRows.map((r) => r.farmer.id));
@@ -275,6 +377,7 @@ export default function Dashboard() {
     <div style={{ padding: 22 }}>
       <style>{`
         .dash-topbar { display:flex; align-items:center; justify-content:space-between; gap:14px; margin-bottom:18px; flex-wrap:wrap; }
+        .topbar-left { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
         .back-btn { display:flex; align-items:center; gap:6px; background:var(--card); border:1px solid var(--line); border-radius:999px; padding:8px 14px; font-size:12.5px; font-weight:700; color:var(--sawah-deep); cursor:pointer; font-family:inherit; }
         .mode-toggle { display:flex; border:1.5px solid var(--line); border-radius:999px; overflow:hidden; background:var(--card); }
         .mode-btn { border:none; background:transparent; padding:8px 14px; font-size:12px; font-weight:700; color:var(--ink-soft); cursor:pointer; display:flex; align-items:center; gap:5px; font-family:inherit; }
@@ -288,6 +391,9 @@ export default function Dashboard() {
         .mini-stat { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:8px 14px; min-width:118px; }
         .mini-stat .label { font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-soft); }
         .mini-stat .value { font-family:var(--font-spacemono),monospace; font-weight:700; font-size:15px; color:var(--sawah-deep); }
+        .menu-row { display:flex; gap:10px; align-items:end; flex-wrap:wrap; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px 14px; margin-bottom:14px; }
+        .menu-row .sel { min-width:220px; }
+        .menu-note { font-size:11px; color:var(--ink-soft); flex:1; min-width:180px; }
         .ing-tabs { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; align-items:center; }
         .ing-tab { border:1.5px solid var(--line); background:var(--card); border-radius:999px; padding:8px 16px; font-size:13px; font-weight:600; color:var(--ink-soft); cursor:pointer; display:flex; align-items:center; gap:8px; font-family:inherit; }
         .ing-tab.active { background:var(--sawah); color:#F4EFD9; border-color:var(--sawah); }
@@ -341,6 +447,7 @@ export default function Dashboard() {
         .score-bar-fill { height:100%; background:var(--gold); }
         .confirm-btn { border:1.5px solid var(--sawah); background:transparent; color:var(--sawah); border-radius:999px; padding:6px 12px; font-size:11.5px; font-weight:700; cursor:pointer; white-space:nowrap; font-family:inherit; }
         .confirm-btn.on { background:var(--green-ok); border-color:var(--green-ok); color:white; }
+        .over-note { font-size:11.5px; color:var(--clay); font-weight:700; margin-top:10px; display:flex; align-items:center; gap:5px; }
         .radar-wrap { display:flex; justify-content:center; }
         .radar-legend { display:flex; gap:14px; font-size:11px; color:var(--ink-soft); justify-content:center; margin-top:8px; flex-wrap:wrap; }
         .legend-dot { width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:4px; }
@@ -359,7 +466,10 @@ export default function Dashboard() {
       `}</style>
 
       <div className="dash-topbar">
-        <button className="back-btn" onClick={() => router.push("/")}><ArrowLeft size={14} /> Kembali ke Landing</button>
+        <div className="topbar-left">
+          <button className="back-btn" onClick={() => router.push("/")}><ArrowLeft size={14} /> Landing</button>
+          <button className="back-btn" onClick={() => router.push("/farmers")}><UserPlus size={14} /> Kelola petani</button>
+        </div>
         <div className="mode-toggle" title="Simulasi = data lokal deterministik. Live = Supabase + WhatsApp + Gemini.">
           <button className={"mode-btn" + (mode === "sim" ? " on" : "")} onClick={() => setMode("sim")}>
             <FlaskConical size={13} /> Simulasi
@@ -385,6 +495,17 @@ export default function Dashboard() {
         </div>
       </div>
 
+      <div className="menu-row">
+        <div className="sel">
+          <span className="field-label"><UtensilsCrossed size={11} style={{ verticalAlign: -1 }} /> Menu MBG minggu ini</span>
+          <select className="field-input" value={menuSel} onChange={(e) => setMenuSel(e.target.value)}>
+            {MENU_PRESETS.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+          </select>
+        </div>
+        <button className="btn btn-primary" style={{ height: 38 }} onClick={loadMenu}>Muat bahan menu</button>
+        <span className="menu-note">Memuat menu mengganti daftar bahan (tetap bisa diedit/ditambah setelahnya).</span>
+      </div>
+
       <div className="ing-tabs">
         {ingredients.map((ing) => {
           const s = status[ing.id] || "idle";
@@ -396,6 +517,9 @@ export default function Dashboard() {
           );
         })}
         <button className="ing-tab-add" onClick={() => setShowAdd((v) => !v)}><Plus size={14} /> Tambah bahan</button>
+        <button className="btn btn-primary" style={{ padding: "8px 16px", fontSize: 12.5 }} disabled={anyBusy} onClick={broadcastAll}>
+          <Send size={13} /> Kirim SEMUA bahan (1 pesan WA)
+        </button>
       </div>
 
       {showAdd && (
@@ -416,7 +540,7 @@ export default function Dashboard() {
       <div className="tsppg-grid">
         <div className="panel">
           <div className="card">
-            <h2><Wheat size={16} /> Permintaan minggu ini</h2>
+            <h2><Wheat size={16} /> Permintaan: {ingredient.name}</h2>
             <p className="sub">SPPG Garut Pusat · <Pencil size={11} style={{ verticalAlign: -1 }} /> jumlah &amp; harga bisa diedit langsung</p>
             <div className="demand-headline">
               <input
@@ -433,7 +557,7 @@ export default function Dashboard() {
                 value={ingredient.distributorPrice}
                 onChange={(e) => updateIngredient(ingredient.id, { distributorPrice: Math.max(1, Number(e.target.value) || 1) })}
               />
-              /{ingredient.unit}, {ingredient.distributorDays} hari
+              /{ingredient.unit}, {ingredient.distributorDays} hari · sekaligus jadi batas harga (budget cap)
             </div>
             {resetHint[ingredient.id] && (
               <div className="hint"><AlertTriangle size={13} /> Harga/satuan diubah — balasan lama di-reset, kirim ulang permintaan.</div>
@@ -441,8 +565,8 @@ export default function Dashboard() {
 
             <div className="row-actions">
               {(st === "idle" || st === "error") && (
-                <button className="btn btn-primary" onClick={() => broadcast(ingredient)}>
-                  <Send size={15} /> Kirim permintaan ke petani {mode === "live" ? "(WA sungguhan)" : ""}
+                <button className="btn btn-primary" onClick={() => broadcastOne(ingredient)}>
+                  <Send size={15} /> Kirim bahan ini saja {mode === "live" ? "(WA sungguhan)" : ""}
                 </button>
               )}
               {st === "sending" && <span className="status-badge status-sending"><Radio size={12} /> Mengirim broadcast WhatsApp…</span>}
@@ -469,7 +593,11 @@ export default function Dashboard() {
 
           <div className="card">
             <h2><MessageCircle size={16} /> Papan balasan WhatsApp</h2>
-            <p className="sub">Bahasa santai petani → data terstruktur. Balasan kosong &amp; ambigu ikut ditampilkan supaya kelihatan AI-nya menyaring.</p>
+            <p className="sub">
+              {mode === "live"
+                ? "Semua balasan untuk permintaan ini — satu pesan petani bisa berisi beberapa bahan sekaligus"
+                : "Bahasa santai petani → data terstruktur. Balasan kosong & ambigu ikut ditampilkan supaya kelihatan AI-nya menyaring."}
+            </p>
             <div className="ticker-list">
               {tickerItems.length === 0 && <div className="empty-hint">Belum ada balasan. Kirim permintaan dulu.</div>}
               {tickerItems.map((t, i) => (
@@ -482,8 +610,18 @@ export default function Dashboard() {
                   <div className="parsed">
                     {t.kind === "offer" && (
                       <>
-                        <span className="pill">{t.qty}{ingredient.unit}</span>
-                        <span className="pill">{fmtRp(t.harga)}/{ingredient.unit}</span>
+                        {t.items?.length > 0 ? (
+                          t.items.map((it, j) => (
+                            <span className="pill" key={j}>
+                              {it.commodity ? it.commodity + " " : ""}{it.qty} @ {fmtRp(it.price_per_unit)}
+                            </span>
+                          ))
+                        ) : (
+                          <>
+                            {t.qty != null && <span className="pill">{t.qty}{ingredient.unit}</span>}
+                            {t.harga != null && <span className="pill">{fmtRp(t.harga)}/{ingredient.unit}</span>}
+                          </>
+                        )}
                         <span className="tag-ai"><Sparkles size={11} /> diproses AI</span>
                       </>
                     )}
@@ -501,7 +639,10 @@ export default function Dashboard() {
 
           <div className="card">
             <h2><Users size={16} /> Rekomendasi petani (terurut AI)</h2>
-            <p className="sub">Skor gabungan: jarak 40% · harga 35% · reliabilitas 25%{mode === "live" ? " — dihitung PostGIS di database" : ""}</p>
+            <p className="sub">
+              Jarak 40% (absolut, 0–30km) · harga 35% (rasio ke termurah) · reliabilitas 25%
+              {mode === "live" ? " — dihitung PostGIS di database" : ""}
+            </p>
             <div className="progress-track"><div className="progress-fill" style={{ width: `${progressPct}%` }} /></div>
             <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: -8, marginBottom: 6 }}>
               {totalQty}/{ingredient.demand} {ingredient.unit} terkonfirmasi
@@ -529,6 +670,11 @@ export default function Dashboard() {
                 </div>
               );
             })}
+            {overCount > 0 && (
+              <div className="over-note">
+                <XCircle size={13} /> {overCount} penawaran di atas harga distributor ({fmtRp(ingredient.distributorPrice)}) — otomatis dikeluarkan dari ranking.
+              </div>
+            )}
           </div>
 
           {confirmedRows.length > 0 && (
@@ -584,7 +730,7 @@ export default function Dashboard() {
             <h2><Sparkles size={16} /> Ringkasan {ingredient.name.toLowerCase()}</h2>
             <div className="summary-grid">
               <div className="summary-tile"><div className="label">Balasan masuk</div><div className="value">{tickerItems.length}</div></div>
-              <div className="summary-tile"><div className="label">Penawaran valid</div><div className="value">{offerCount}</div></div>
+              <div className="summary-tile"><div className="label">Penawaran valid</div><div className="value">{ranked.length}</div></div>
               <div className="summary-tile"><div className="label">Terkonfirmasi</div><div className="value">{totalQty}{ingredient.unit}</div></div>
               <div className="summary-tile"><div className="label">Hemat vs distributor</div><div className={"value" + (savingsPct > 0 ? " good" : "")}>{savingsPct > 0 ? savingsPct.toFixed(0) + "%" : "—"}</div></div>
             </div>
@@ -593,7 +739,7 @@ export default function Dashboard() {
       </div>
 
       <div style={{ marginTop: 22, textAlign: "center", fontSize: 11.5, color: "var(--ink-soft)" }}>
-        TaniSPPG · Garuda Hacks 7.0 · {mode === "live" ? "Terhubung ke Supabase + Fonnte + Gemini" : "Mode simulasi (tanpa backend)"}
+        Tanitera
       </div>
     </div>
   );
