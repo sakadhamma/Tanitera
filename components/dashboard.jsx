@@ -474,6 +474,7 @@ export default function Dashboard() {
         .status-done { background:#CFE3D0; color:var(--green-ok); }
         .status-error { background:#F3D5C8; color:var(--clay); }
         .hint { font-size:11.5px; color:var(--clay); display:flex; align-items:center; gap:5px; margin-top:8px; }
+        .hint-over { font-size:11px; color:var(--gold-deep); font-weight:700; margin-top:4px; }
         .ticker-list { display:flex; flex-direction:column; gap:8px; max-height:250px; overflow-y:auto; padding-right:4px; }
         .ticker-item { border:1px solid var(--line); border-radius:10px; padding:9px 12px; background:#FEFDF6; animation:slideIn .35s ease; }
         .ticker-item.decline { background:#F3F0E2; opacity:.8; }
@@ -893,6 +894,9 @@ export default function Dashboard() {
                       <span>reliabilitas {r.farmer.reliability}%</span>
                     </div>
                     <div className="score-bar"><div className="score-bar-fill" style={{ width: `${Math.min(100, r.score * 100)}%` }} /></div>
+                    {!isConfirmed && totalQty >= demandSafe && (
+                      <div className="hint-over">⚠ target sudah tercapai — konfirmasi ini akan melebihi kebutuhan</div>
+                    )}
                   </div>
                   <button className={"confirm-btn" + (isConfirmed ? " on" : "")} onClick={() => toggleConfirm(r)}>
                     {isConfirmed ? "✓ Terkonfirmasi" : "Konfirmasi"}
