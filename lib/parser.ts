@@ -78,6 +78,11 @@ function isValid(p: any): p is ParsedReply {
 }
 
 // safety net
+const STOPWORDS = new Set([
+  "ada", "aja", "dan", "yang", "buat", "sama", "kalo", "kalau",
+  "pak", "bu", "juga", "sih", "nya", "aya", "teh", "mah",
+]);
+
 function regexFallback(msg: string): ParsedReply {
   const m = msg.toLowerCase().replace(/,(?=\d)/g, ".");
   if (/\b(gak ada|ga ada|kosong|belum panen|teu aya|teu tiasa|tidak)\b/.test(m) && !/\d/.test(m))
@@ -99,8 +104,13 @@ function regexFallback(msg: string): ParsedReply {
       if (cand) priceVal = parseFloat(cand);
     }
     if (priceVal === null) continue;
-    const word = seg.match(/\b([a-z]{4,})\b/); // first word ≥4 letters as commodity hint
-    items.push({ commodity: word ? word[1] : null, qty: parseFloat(qty[1]), price_per_unit: priceVal });
+
+    const words = [...seg.matchAll(/\b([a-z]{2,})\b/g)]
+      .map((w) => w[1])
+      .filter((w) => !STOPWORDS.has(w) && !/^\d+$/.test(w));
+    const commodity = words[0] ?? null;
+
+    items.push({ commodity, qty: parseFloat(qty[1]), price_per_unit: priceVal });
   }
   if (items.length) return { intent: "offer", items, confidence: 0.5 };
 
