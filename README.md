@@ -48,13 +48,13 @@ match_score = 0.40 × skor_jarak + 0.35 × skor_harga + 0.25 × skor_reliabilita
 
 Rincian tiap komponen:
 
-- **Jarak — bobot 40%, skala absolut.** `1 - least(distance_km, 30) / 30.0` — jarak dibatasi maksimum 30km dan diskalakan lurus 0–1: **0km = skor 1.0, 30km ke atas = skor 0.0**. Ini absolut, bukan relatif terhadap penawaran lain — petani yang jaraknya 5km selalu dapat skor yang sama berapa pun jarak petani lain yang membalas.
-- **Harga — bobot 35%, rasio terhadap penawaran termurah.** `min_price / price_per_kg` — mengambil harga termurah di antara semua penawaran untuk bahan tersebut, lalu dibagi dengan harga petani ini. Kalau termurah Rp 10.000 dan petani ini menawarkan Rp 80.000, skor harganya `10000/80000 = 0.125`. Kalau dia sendiri yang termurah, skornya `1.0`. Karena berbentuk rasio (bukan posisi min-max), selisih harga 8x akan berpengaruh jauh lebih besar ke skor dibanding selisih harga 1.2x — sesuai kenyataan.
-- **Reliabilitas — bobot 25%.** Langsung memakai `reliability_score` yang tersimpan di tabel `farmers` (skala 0–1), yang otomatis naik (+0.05) atau turun (−0.15) tiap kali sebuah pengiriman dikonfirmasi lewat trigger `update_reliability()`.
+- **Jarak: bobot 40%, skala absolut.** `1 - least(distance_km, 30) / 30.0`, jarak dibatasi maksimum 30km dan diskalakan lurus 0–1: **0km = skor 1.0, 30km ke atas = skor 0.0**. Ini absolut, bukan relatif terhadap penawaran lain, petani yang jaraknya 5km selalu dapat skor yang sama berapa pun jarak petani lain yang membalas.
+- **Harga: bobot 35%, rasio terhadap penawaran termurah.** `min_price / price_per_kg`, mengambil harga termurah di antara semua penawaran untuk bahan tersebut, lalu dibagi dengan harga petani ini. Kalau termurah Rp 10.000 dan petani ini menawarkan Rp 80.000, skor harganya `10000/80000 = 0.125`. Kalau dia sendiri yang termurah, skornya `1.0`. Karena berbentuk rasio (bukan posisi min-max), selisih harga 8x akan berpengaruh jauh lebih besar ke skor dibanding selisih harga 1.2x (sesuai kenyataan).
+- **Reliabilitas: bobot 25%.** Langsung memakai `reliability_score` yang tersimpan di tabel `farmers` (skala 0–1), yang otomatis naik (+0.05) atau turun (−0.15) tiap kali sebuah pengiriman dikonfirmasi lewat trigger `update_reliability()`.
 
-**Filter keras sebelum penskoran:** penawaran dengan harga di atas estimasi harga distributor (`price_per_kg > max_price_per_kg`) ditandai `over_budget = true` dan dikeluarkan sepenuhnya dari daftar rangking di dashboard — bukan diberi skor rendah, tapi memang tidak pernah ditampilkan sebagai opsi, karena SPPG sudah punya alternatif distributor di harga itu.
+**Filter keras sebelum penskoran:** penawaran dengan harga di atas estimasi harga distributor (`price_per_kg > max_price_per_kg`) ditandai `over_budget = true` dan dikeluarkan sepenuhnya dari daftar rangking di dashboard, bukan diberi skor rendah, tapi memang tidak pernah ditampilkan sebagai opsi, karena SPPG sudah punya alternatif distributor di harga itu.
 
-Perhitungan ini berjalan di dalam Postgres (view SQL) untuk mode Live — dashboard hanya membaca kolom `match_score` dan `over_budget` yang sudah jadi. Mode Simulasi meniru formula yang sama persis di sisi client (lihat `simScored` di `components/dashboard.jsx`) supaya hasil kedua mode terasa konsisten walau tanpa database.
+Perhitungan ini berjalan di dalam Postgres (view SQL) untuk mode Live. Dashboard hanya membaca kolom `match_score` dan `over_budget` yang sudah jadi. Mode Simulasi meniru formula yang sama persis di sisi client (lihat `simScored` di `components/dashboard.jsx`) supaya hasil kedua mode terasa konsisten walau tanpa database.
 
 ## Cara Kerja
 
@@ -119,28 +119,28 @@ npm install
 cp .env.example .env.local
 npm run dev
 ```
-Buka `http://localhost:3000` — dashboard sudah berjalan penuh di **mode Simulasi** tanpa perlu API key apa pun.
+Buka `http://localhost:3000` -> dashboard sudah berjalan penuh di **mode Simulasi** tanpa perlu API key apa pun.
 
 ### 2. Environment variables
 Isi `.env.local` (dan tambahkan variabel yang sama di Vercel jika deploy):
 
 ```dotenv
-# Supabase — Settings → API
+# Supabase: Settings → API
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=        # server-only, jangan expose ke client
 
-# Gemini — aistudio.google.com
+# Gemini: aistudio.google.com
 GEMINI_API_KEY=
 
-# Fonnte — fonnte.com dashboard, device token
+# Fonnte: fonnte.com dashboard, device token
 FONNTE_TOKEN=
 
 # App behavior
 NEXT_PUBLIC_DEFAULT_MODE=live      # "sim" atau "live"
 BLAST_MAX_RECIPIENTS=10           # batas jumlah WA per broadcast
 
-# Opsional — kunci dashboard dengan PIN
+# Opsional: kunci dashboard dengan PIN
 NEXT_PUBLIC_DEMO_PIN=
 ```
 
@@ -173,7 +173,7 @@ curl -X POST https://api.fonnte.com/send \
 
 ## Deploy
 
-Proyek ini siap deploy langsung ke [Vercel](https://vercel.com) — import repo, tambahkan environment variables di atas, deploy. Next.js App Router menangani halaman statis dan API routes serverless dalam satu deployment yang sama.
+Proyek ini siap deploy langsung ke [Vercel](https://vercel.com), import repo, tambahkan environment variables di atas, deploy. Next.js App Router menangani halaman statis dan API routes serverless dalam satu deployment yang sama.
 
 ## Mode Simulasi vs Live
 
@@ -189,14 +189,14 @@ Kedua mode dirender lewat komponen yang sama sehingga tampilannya identik — ji
 
 ## Keterbatasan yang Diketahui
 
-- Fonnte adalah WhatsApp gateway tidak resmi — cocok untuk pilot/demo, untuk skala produksi sebaiknya migrasi ke WhatsApp Business API resmi
+- Fonnte adalah WhatsApp gateway tidak resmi, cocok untuk pilot/demo, untuk skala produksi sebaiknya migrasi ke WhatsApp Business API resmi
 - Satu SPPG saat ini hardcoded sebagai data awal (multi-SPPG belum didukung)
 - Radius pencarian petani menggunakan perhitungan jarak PostGIS riil, namun visualisasi peta masih sederhana
 
 ## Tim
 
-Dibuat oleh tim Tanitera untuk **Garuda Hacks 7.0** — kategori Agriculture & Food Systems.
+Dibuat oleh tim Tanitera untuk **Garuda Hacks 7.0**, kategori Agriculture & Food Systems.
 
 ---
 
-*Tanitera — Menanam Harapan, Menuai Kesejahteraan*
+**Tanitera - Menanam Harapan, Menuai Kesejahteraan**
