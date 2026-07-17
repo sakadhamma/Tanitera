@@ -12,9 +12,10 @@ export async function POST(req: NextRequest) {
   const { data: sppg } = await db.from("sppg").select("id, name").limit(1).single();
   if (!sppg) return NextResponse.json({ error: "Tidak ada SPPG — jalankan seed schema.sql dulu" }, { status: 500 });
 
+  const pax = Number(body.pax) > 0 ? Number(body.pax) : null;
   const { data: demand, error: dErr } = await db
     .from("demands")
-    .insert({ sppg_id: sppg.id, week_start: nextMonday(), status: "matching" })
+    .insert({ sppg_id: sppg.id, week_start: nextMonday(), status: "matching", pax })
     .select("id").single();
   if (dErr) return NextResponse.json({ error: dErr.message }, { status: 500 });
 

@@ -11,7 +11,7 @@ import {
   FARMER_PROFILES, DEFAULT_INGREDIENTS, UNITS, LOGISTICS,
   getRepliesFor, staggerDelay, shuffle, slugify, fmtRp, strToSeed,
 } from "@/lib/sim";
-import { MENU_PRESETS } from "@/lib/menus";
+import { MENU_PRESETS, PAX_PRESETS } from "@/lib/menus";
 import { supabaseBrowser } from "@/lib/supabase";
 
 const MAXKM = 30, R = 160, CX = 200, CY = 200;
@@ -24,6 +24,8 @@ const pos = (f) => {
 };
 const stableId = (name) =>
   name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || slugify(name);
+const round2 = (n) => Math.round(n * 100) / 100;
+const blankMenuIng = () => ({ name: "", unit: "kg", qtyPerPortion: "", distributorPrice: "", tag: "" });
 
 export default function Dashboard() {
   const router = useRouter();
@@ -44,7 +46,23 @@ export default function Dashboard() {
   const [errMsg, setErrMsg] = useState({});
   const [showAdd, setShowAdd] = useState(false);
   const [menuSel, setMenuSel] = useState(MENU_PRESETS[0].id);
-  const [form, setForm] = useState({ name: "", unit: "kg", demand: "", distributorPrice: "", tag: "" });
+  const [form, setForm] = useState({ name: "", unit: "kg", qtyPerPortion: "", distributorPrice: "", tag: "" });
+
+  // calculate per porsi
+  const [pax, setPax] = useState(PAX_PRESETS[PAX_PRESETS.length - 1]);
+  const [paxCustom, setPaxCustom] = useState(false);
+
+  // menus backend from supabase, backup from menus.js
+  const [liveMenus, setLiveMenus] = useState([]);
+  const [menusErr, setMenusErr] = useState(null);
+  const menus = liveMenus.length ? liveMenus : MENU_PRESETS;
+
+  // insert/update/delete menus in Supabase
+  const [showMenuManage, setShowMenuManage] = useState(false);
+  const [editingMenuId, setEditingMenuId] = useState(null); // null = creating new
+  const [menuForm, setMenuForm] = useState({ name: "", ingredients: [blankMenuIng()] });
+  const [menuFormErr, setMenuFormErr] = useState(null);
+  const [menuFormBusy, setMenuFormBusy] = useState(false);
 
   const timersRef = useRef({});
   const channelsRef = useRef({});
@@ -157,6 +175,7 @@ export default function Dashboard() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          pax,
           items: ings.map((i) => ({
             commodity: i.name, qty: i.demand, unit: i.unit, maxPrice: i.distributorPrice,
           })),
@@ -179,7 +198,7 @@ export default function Dashboard() {
         setStatus((s) => ({ ...s, [ing.id]: "error" }));
       });
     }
-  }, [supabase, resetIngredient, subscribeLive, refetchLive]);
+  }, [supabase, resetIngredient, subscribeLive, refetchLive, pax]);
 
   // simulation
   const broadcastSim = useCallback((ing) => {
@@ -252,6 +271,24 @@ export default function Dashboard() {
     } catch { /* storage full/blocked → non-fatal */ }
   }, [hydrated, ingredients, activeIng, mode, replies, confirmedKeys, status]);
 
+  const loadMenus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/menus");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Gagal memuat menu");
+      setLiveMenus(Array.isArray(data.menus) ? data.menus : []);
+      setMenusErr(null);
+    } catch (e) {
+      setLiveMenus([]);
+      setMenusErr(String(e.message || e));
+    }
+  }, []);
+  useEffect(() => { loadMenus(); }, [loadMenus]);
+
+  useEffect(() => {
+    if (!menus.some((m) => m.id === menuSel)) setMenuSel(menus[0]?.id);
+  }, [menus, menuSel]);
+
   // input n update ingredients
   const updateIngredient = (id, patch) => {
     const invalidates = ("distributorPrice" in patch || "unit" in patch);
@@ -270,32 +307,39 @@ export default function Dashboard() {
     if (activeIng === id) setActiveIng(next[0].id);
   };
   const addIngredient = () => {
-    const demand = Math.max(1, Number(form.demand) || 0);
+    const qtyPerPortion = Number(form.qtyPerPortion);
     const price = Number(form.distributorPrice);
-    if (!form.name.trim() || !Number(form.demand) || !price || price <= 0) return;
+    if (!form.name.trim() || !qtyPerPortion || qtyPerPortion <= 0 || !price || price <= 0) return;
     const id = stableId(form.name);
     if (ingredients.some((i) => i.id === id)) { setActiveIng(id); setShowAdd(false); return; }
     setIngredients((list) => [...list, {
-      id, name: form.name.trim(), unit: form.unit, demand,
+      id, name: form.name.trim(), unit: form.unit, qtyPerPortion, demand: round2(qtyPerPortion * pax),
       distributorPrice: price, distributorDays: 3, tag: form.tag.trim() || "Custom",
     }]);
     setActiveIng(id);
-    setForm({ name: "", unit: "kg", demand: "", distributorPrice: "", tag: "" });
+    setForm({ name: "", unit: "kg", qtyPerPortion: "", distributorPrice: "", tag: "" });
     setShowAdd(false);
   };
   const loadMenu = () => {
-    const preset = MENU_PRESETS.find((m) => m.id === menuSel);
+    const preset = menus.find((m) => m.id === menuSel);
     if (!preset) return;
     Object.keys(timersRef.current).forEach(clearTimersFor);
     Object.keys(channelsRef.current).forEach(closeChannelFor);
     liveItemsRef.current = {}; liveDemandsRef.current = {};
     const items = preset.ingredients.map((ing) => ({
       ...ing, id: stableId(ing.name), distributorDays: 3,
+      demand: round2(ing.qtyPerPortion * pax),
     }));
     setIngredients(items);
     setActiveIng(items[0].id);
     setStatus({}); setReplies({}); setLiveRanked({}); setConfirmedKeys({}); setErrMsg({}); setResetHint({});
   };
+
+  useEffect(() => {
+    setIngredients((list) => list.map((i) =>
+      i.qtyPerPortion ? { ...i, demand: round2(i.qtyPerPortion * pax) } : i
+    ));
+  }, [pax]);
 
   // new scoring methods
   const simScored = useMemo(() => {
@@ -393,7 +437,15 @@ export default function Dashboard() {
         .mini-stat .value { font-family:var(--font-spacemono),monospace; font-weight:700; font-size:15px; color:var(--sawah-deep); }
         .menu-row { display:flex; gap:10px; align-items:end; flex-wrap:wrap; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px 14px; margin-bottom:14px; }
         .menu-row .sel { min-width:220px; }
+        .menu-row .pax-field { min-width:150px; }
         .menu-note { font-size:11px; color:var(--ink-soft); flex:1; min-width:180px; }
+        .menu-manage { background:var(--card); border:1.5px dashed var(--line); border-radius:14px; padding:16px; margin-bottom:18px; }
+        .menu-manage-list { display:flex; flex-direction:column; gap:6px; margin-bottom:16px; }
+        .menu-manage-list-row { display:flex; align-items:center; gap:10px; border:1px solid var(--line); border-radius:10px; padding:8px 12px; background:var(--bg,transparent); }
+        .menu-manage-list-row .name { flex:1; font-size:13px; font-weight:600; color:var(--sawah-deep); }
+        .menu-ing-row { display:grid; grid-template-columns:1.3fr .7fr .8fr .9fr .8fr auto; gap:8px; align-items:end; margin-bottom:8px; }
+        @media (max-width:640px){ .menu-ing-row { grid-template-columns:1fr 1fr; } }
+        .menu-manage-actions { display:flex; gap:12px; align-items:center; justify-content:flex-end; margin-top:10px; flex-wrap:wrap; }
         .ing-tabs { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; align-items:center; }
         .ing-tab { border:1.5px solid var(--line); background:var(--card); border-radius:999px; padding:8px 16px; font-size:13px; font-weight:600; color:var(--ink-soft); cursor:pointer; display:flex; align-items:center; gap:8px; font-family:inherit; }
         .ing-tab.active { background:var(--sawah); color:#F4EFD9; border-color:var(--sawah); }
@@ -498,13 +550,180 @@ export default function Dashboard() {
       <div className="menu-row">
         <div className="sel">
           <span className="field-label"><UtensilsCrossed size={11} style={{ verticalAlign: -1 }} /> Menu MBG minggu ini</span>
-          <select className="field-input" value={menuSel} onChange={(e) => setMenuSel(e.target.value)}>
-            {MENU_PRESETS.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+          <select className="field-input" value={menuSel || ""} onChange={(e) => setMenuSel(e.target.value)}>
+            {menus.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
           </select>
         </div>
+        <div className="sel pax-field">
+          <span className="field-label">Jumlah pax (porsi)</span>
+          {paxCustom ? (
+            <input
+              className="field-input" type="number" min="1" autoFocus
+              value={pax}
+              onChange={(e) => setPax(Math.max(1, Number(e.target.value) || 1))}
+              onBlur={() => { if (PAX_PRESETS.includes(pax)) setPaxCustom(false); }}
+            />
+          ) : (
+            <select
+              className="field-input"
+              value={PAX_PRESETS.includes(pax) ? pax : "custom"}
+              onChange={(e) => {
+                if (e.target.value === "custom") { setPaxCustom(true); return; }
+                setPax(Number(e.target.value));
+              }}
+            >
+              {PAX_PRESETS.map((p) => <option key={p} value={p}>{p} porsi</option>)}
+              <option value="custom">Custom…</option>
+            </select>
+          )}
+        </div>
         <button className="btn btn-primary" style={{ height: 38 }} onClick={loadMenu}>Muat bahan menu</button>
-        <span className="menu-note">Memuat menu mengganti daftar bahan (tetap bisa diedit/ditambah setelahnya).</span>
+        <button
+          className="btn-ghost" style={{ height: 38 }}
+          onClick={() => {
+            setShowMenuManage((v) => !v);
+            setEditingMenuId(null);
+            setMenuForm({ name: "", ingredients: [blankMenuIng()] });
+            setMenuFormErr(null);
+          }}
+        >
+          <UtensilsCrossed size={13} /> Kelola menu
+        </button>
+        <span className="menu-note">
+          Memuat menu mengganti daftar bahan (tetap bisa diedit/ditambah setelahnya). Jumlah bahan = kebutuhan per porsi × pax.
+        </span>
+        {menusErr && <span className="menu-note" style={{ color: "var(--clay)" }}>Menu dari Supabase gagal dimuat ({menusErr}) — pakai preset offline dulu.</span>}
       </div>
+
+      {showMenuManage && (
+        <div className="menu-manage">
+          <div className="menu-manage-list">
+            {liveMenus.length === 0 && (
+              <p className="menu-note">Belum ada menu di Supabase — dropdown menu masih pakai preset offline (lib/menus.js), yang belum bisa diedit/dihapus di sini. Isi form di bawah untuk membuat menu pertama.</p>
+            )}
+            {liveMenus.map((m) => (
+              <div key={m.id} className="menu-manage-list-row">
+                <span className="name">{m.name}</span>
+                <span className="menu-note">{m.ingredients.length} bahan</span>
+                <button
+                  className="btn-ghost" style={{ padding: "4px 10px", fontSize: 12 }}
+                  onClick={() => {
+                    setEditingMenuId(m.id);
+                    setMenuForm({
+                      name: m.name,
+                      ingredients: m.ingredients.map((i) => ({
+                        name: i.name, unit: i.unit, qtyPerPortion: i.qtyPerPortion,
+                        distributorPrice: i.distributorPrice, tag: i.tag || "",
+                      })),
+                    });
+                    setMenuFormErr(null);
+                  }}
+                >
+                  <Pencil size={12} /> Edit
+                </button>
+                <button
+                  className="btn-danger" style={{ padding: "4px 10px", fontSize: 12 }}
+                  onClick={async () => {
+                    if (!confirm(`Hapus menu "${m.name}"?`)) return;
+                    await fetch(`/api/menus/${m.id}`, { method: "DELETE" });
+                    loadMenus();
+                    if (editingMenuId === m.id) { setEditingMenuId(null); setMenuForm({ name: "", ingredients: [blankMenuIng()] }); }
+                  }}
+                >
+                  <Trash2 size={12} /> Hapus
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <div><span className="field-label">Nama menu</span>
+            <input
+              className="field-input" placeholder="mis. Sop Ayam Sayuran"
+              value={menuForm.name}
+              onChange={(e) => setMenuForm((f) => ({ ...f, name: e.target.value }))}
+            />
+          </div>
+
+          {menuForm.ingredients.map((ing, idx) => (
+            <div className="menu-ing-row" key={idx}>
+              <div><span className="field-label">Bahan</span>
+                <input
+                  className="field-input" placeholder="mis. Wortel" value={ing.name}
+                  onChange={(e) => setMenuForm((f) => ({ ...f, ingredients: f.ingredients.map((r, i) => i === idx ? { ...r, name: e.target.value } : r) }))}
+                />
+              </div>
+              <div><span className="field-label">Satuan</span>
+                <select
+                  className="field-input" value={ing.unit}
+                  onChange={(e) => setMenuForm((f) => ({ ...f, ingredients: f.ingredients.map((r, i) => i === idx ? { ...r, unit: e.target.value } : r) }))}
+                >
+                  {UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+                </select>
+              </div>
+              <div><span className="field-label">Qty/porsi</span>
+                <input
+                  className="field-input" type="number" min="0.001" step="0.001" placeholder="0.06" value={ing.qtyPerPortion}
+                  onChange={(e) => setMenuForm((f) => ({ ...f, ingredients: f.ingredients.map((r, i) => i === idx ? { ...r, qtyPerPortion: e.target.value } : r) }))}
+                />
+              </div>
+              <div><span className="field-label">Harga distributor</span>
+                <input
+                  className="field-input" type="number" min="1" placeholder="12000" value={ing.distributorPrice}
+                  onChange={(e) => setMenuForm((f) => ({ ...f, ingredients: f.ingredients.map((r, i) => i === idx ? { ...r, distributorPrice: e.target.value } : r) }))}
+                />
+              </div>
+              <div><span className="field-label">Kategori</span>
+                <input
+                  className="field-input" placeholder="Sayur" value={ing.tag}
+                  onChange={(e) => setMenuForm((f) => ({ ...f, ingredients: f.ingredients.map((r, i) => i === idx ? { ...r, tag: e.target.value } : r) }))}
+                />
+              </div>
+              <button
+                className="btn-danger" style={{ height: 38 }}
+                disabled={menuForm.ingredients.length <= 1}
+                onClick={() => setMenuForm((f) => ({ ...f, ingredients: f.ingredients.filter((_, i) => i !== idx) }))}
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
+          ))}
+
+          <div className="menu-manage-actions">
+            <button
+              className="btn-ghost" style={{ height: 38 }}
+              onClick={() => setMenuForm((f) => ({ ...f, ingredients: [...f.ingredients, blankMenuIng()] }))}
+            >
+              <Plus size={14} /> Tambah bahan
+            </button>
+            {menuFormErr && <span className="menu-note" style={{ color: "var(--clay)" }}>{menuFormErr}</span>}
+            <button
+              className="btn btn-primary" style={{ height: 38 }} disabled={menuFormBusy}
+              onClick={async () => {
+                setMenuFormBusy(true); setMenuFormErr(null);
+                try {
+                  const payload = {
+                    name: menuForm.name,
+                    ingredients: menuForm.ingredients.map((i) => ({ ...i, qtyPerPortion: Number(i.qtyPerPortion), distributorPrice: Number(i.distributorPrice) })),
+                  };
+                  const url = editingMenuId ? `/api/menus/${editingMenuId}` : "/api/menus";
+                  const method = editingMenuId ? "PUT" : "POST";
+                  const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+                  const data = await res.json();
+                  if (!res.ok) throw new Error(data.error || "Gagal menyimpan menu");
+                  await loadMenus();
+                  setShowMenuManage(false);
+                } catch (e) {
+                  setMenuFormErr(String(e.message || e));
+                } finally {
+                  setMenuFormBusy(false);
+                }
+              }}
+            >
+              {editingMenuId ? "Simpan perubahan" : "Buat menu"}
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="ing-tabs">
         {ingredients.map((ing) => {
@@ -530,10 +749,13 @@ export default function Dashboard() {
               {UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
             </select>
           </div>
-          <div><span className="field-label">Jumlah dibutuhkan</span><input className="field-input" type="number" min="1" placeholder="100" value={form.demand} onChange={(e) => setForm((f) => ({ ...f, demand: e.target.value }))} /></div>
+          <div><span className="field-label">Jumlah per porsi</span><input className="field-input" type="number" min="0.001" step="0.001" placeholder="0.06" value={form.qtyPerPortion} onChange={(e) => setForm((f) => ({ ...f, qtyPerPortion: e.target.value }))} /></div>
           <div><span className="field-label">Est. harga distributor (Rp)</span><input className="field-input" type="number" min="1" placeholder="10000" value={form.distributorPrice} onChange={(e) => setForm((f) => ({ ...f, distributorPrice: e.target.value }))} /></div>
           <div><span className="field-label">Kategori (opsional)</span><input className="field-input" placeholder="Sayur / Bumbu / Umbi" value={form.tag} onChange={(e) => setForm((f) => ({ ...f, tag: e.target.value }))} /></div>
           <button className="btn btn-primary" style={{ height: 38 }} onClick={addIngredient}><Plus size={15} /> Tambah</button>
+          {!!Number(form.qtyPerPortion) && (
+            <span className="menu-note">= {round2(Number(form.qtyPerPortion) * pax)}{form.unit} untuk {pax} porsi</span>
+          )}
         </div>
       )}
 
@@ -542,11 +764,19 @@ export default function Dashboard() {
           <div className="card">
             <h2><Wheat size={16} /> Permintaan: {ingredient.name}</h2>
             <p className="sub">SPPG Garut Pusat · <Pencil size={11} style={{ verticalAlign: -1 }} /> jumlah &amp; harga bisa diedit langsung</p>
+            {!!ingredient.qtyPerPortion && (
+              <p className="sub" style={{ marginTop: -8 }}>
+                ≈ {ingredient.qtyPerPortion}{ingredient.unit}/porsi × {pax} porsi
+              </p>
+            )}
             <div className="demand-headline">
               <input
                 className="plain-input num" type="number" min="1"
                 value={ingredient.demand}
-                onChange={(e) => updateIngredient(ingredient.id, { demand: Math.max(1, Number(e.target.value) || 1) })}
+                onChange={(e) => {
+                  const demand = Math.max(1, Number(e.target.value) || 1);
+                  updateIngredient(ingredient.id, { demand, qtyPerPortion: round2(demand / pax) });
+                }}
               />
               <span className="unit">{ingredient.unit} {ingredient.name.toLowerCase()}</span>
             </div>
