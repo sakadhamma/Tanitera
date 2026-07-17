@@ -1,6 +1,6 @@
 # Tanitera
 
-**Dari sawah ke dapur MBG, tanpa lewat Jakarta.**
+**Menanam Harapan, Menuai Kesejahteraan**
 
 Tanitera menghubungkan dapur SPPG (Satuan Pelayanan Pemenuhan Gizi) program Makan Bergizi Gratis (MBG) langsung dengan petani lokal lewat WhatsApp, anpa aplikasi baru dan tanpa perantara distributor besar di luar kota. SPPG memposting kebutuhan bahan, petani membalas dengan bahasa sehari-hari, AI membaca dan meranking penawaran, dan penjemputan akan diatur oleh SPPG.
 
