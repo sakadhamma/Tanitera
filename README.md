@@ -30,38 +30,6 @@ Tanitera membalik alurnya: **SPPG posting kebutuhan → petani balas lewat Whats
 - **Halaman overview/riwayat**: ringkasan kebutuhan yang sudah dipenuhi, biaya, dan daftar petani per transaksi
 - **PIN gate opsional**: kunci akses dashboard dengan PIN sederhana, berguna untuk melindungi data live saat demo publik
 
-# Tanitera
-
-**Dari sawah ke dapur MBG, tanpa lewat Jakarta.**
-
-Tanitera menghubungkan dapur SPPG (Satuan Pelayanan Pemenuhan Gizi) program Makan Bergizi Gratis (MBG) langsung dengan petani lokal lewat WhatsApp — tanpa aplikasi baru, tanpa perantara distributor besar di luar kota. SPPG memposting kebutuhan bahan, petani membalas dengan bahasa sehari-hari, AI membaca dan merangking penawaran, dan koperasi/Gapoktan yang mengurus logistik penjemputan.
-
-🔗 **Live demo:** [tanitera.vercel.app](https://tanitera.vercel.app)
-
-Dibuat untuk **Garuda Hacks 7.0**.
-
----
-
-## Masalah
-
-Dana MBG seharusnya menghidupkan ekonomi desa lewat pembelian bahan pangan lokal. Tapi tanpa daftar petani yang jelas dan cara menggabungkan hasil panen skala kecil menjadi volume yang dibutuhkan dapur, SPPG cenderung memesan dari distributor besar di luar kota — uang mengalir keluar desa alih-alih memutar di ekonomi lokal.
-
-## Solusi
-
-Tanitera membalik alurnya: **SPPG posting kebutuhan → petani balas lewat WhatsApp → AI merangking otomatis** berdasarkan jarak, harga, dan reliabilitas → SPPG konfirmasi satu klik → koperasi mengatur pengumpulan dan pengantaran.
-
-## Fitur
-
-- **Landing page** — perkenalan produk, alur kerja, dan value proposition
-- **Dashboard SPPG** — input menu & jumlah porsi, kirim permintaan bahan ke petani (per bahan atau sekaligus), lihat balasan masuk secara real-time, dan rangking petani otomatis
-- **Mode Simulasi & Live** — mode simulasi berjalan sepenuhnya di browser tanpa API key (aman untuk demo tanpa koneksi/API), mode live terhubung ke Supabase + WhatsApp (Fonnte) + Gemini sungguhan
-- **Parser AI (Gemini)** — membaca balasan WhatsApp petani dalam bahasa santai/typo/multi-item dan mengubahnya jadi data terstruktur (bahan, jumlah, harga), dengan regex fallback jika API AI gagal
-- **Rangking otomatis** — skor gabungan jarak (40%, dihitung PostGIS), harga (35%, rasio ke termurah), dan reliabilitas petani (25%), dengan hard filter untuk penawaran di atas harga distributor
-- **Konfirmasi partial** — SPPG bisa mengonfirmasi sebagian dari jumlah yang ditawarkan petani, bukan hanya semua-atau-tidak-sama-sekali
-- **Halaman kelola petani** — CRUD data petani (nama, nomor WA, kecamatan, komoditas)
-- **Halaman overview/riwayat** — ringkasan kebutuhan yang sudah dipenuhi, biaya, dan daftar petani per transaksi
-- **PIN gate opsional** — kunci akses dashboard dengan PIN sederhana, berguna untuk melindungi data live saat demo publik
-
 ## Cara Ranking Dihitung
 
 Setiap penawaran petani diranking menggunakan skor gabungan dari view SQL `ranked_applications` di `supabase/schema.sql`:
