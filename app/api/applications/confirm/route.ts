@@ -8,7 +8,7 @@ const LOGISTICS = {
 };
 
 export async function POST(req: NextRequest) {
-  const { applicationId } = await req.json();
+  const { applicationId, qty } = await req.json();
   if (!applicationId)
     return NextResponse.json({ error: "applicationId wajib" }, { status: 400 });
 
@@ -23,13 +23,18 @@ export async function POST(req: NextRequest) {
   if (error || !app)
     return NextResponse.json({ error: error?.message ?? "not found" }, { status: 404 });
 
+  const confirmedQty =
+    typeof qty === "number" && qty > 0 && qty <= app.offered_qty_kg
+      ? qty
+      : app.offered_qty_kg; // fallback: full offer, same as before
+
   await db.from("matches").upsert(
-    { application_id: app.id },
+    { application_id: app.id, confirmed_qty_kg: confirmedQty },
     { onConflict: "application_id" }
   );
 
   const farmer: any = app.farmers;
-  const total = app.offered_qty_kg * app.price_per_kg;
+  const total = confirmedQty * app.price_per_kg;
   if (farmer?.wa_number) {
     try {
       await fetch("https://api.fonnte.com/send", {
@@ -42,12 +47,15 @@ export async function POST(req: NextRequest) {
           target: farmer.wa_number,
           message:
             `Selamat! Penawaran Anda DITERIMA.\n` +
-            `${app.offered_qty_kg} @ Rp ${app.price_per_kg.toLocaleString("id-ID")} = Rp ${total.toLocaleString("id-ID")}\n` +
+            `${confirmedQty} @ Rp ${app.price_per_kg.toLocaleString("id-ID")} = Rp ${total.toLocaleString("id-ID")}\n` +
+            (confirmedQty < app.offered_qty_kg
+              ? `(Dari total tawaran ${app.offered_qty_kg}, yang diambil ${confirmedQty} sesuai kebutuhan.)\n`
+              : ``) +
             `Penjemputan: ${LOGISTICS.schedule} oleh ${LOGISTICS.aggregator}, titik kumpul ${LOGISTICS.meetingPoint}.`,
         }),
       });
     } catch { /* non-fatal */ }
   }
 
-  return NextResponse.json({ ok: true, applicationId: app.id });
+  return NextResponse.json({ ok: true, applicationId: app.id, confirmedQty });
 }

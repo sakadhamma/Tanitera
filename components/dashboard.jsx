@@ -27,6 +27,7 @@ const stableId = (name) =>
 const round2 = (n) => Math.round(n * 100) / 100;
 const blankMenuIng = () => ({ name: "", unit: "kg", qtyPerPortion: "", distributorPrice: "", tag: "" });
 
+
 export default function Dashboard() {
   const router = useRouter();
   const supabase = supabaseBrowser();
@@ -42,6 +43,7 @@ export default function Dashboard() {
   const [replies, setReplies] = useState({});
   const [liveRanked, setLiveRanked] = useState({});
   const [confirmedKeys, setConfirmedKeys] = useState({});
+  const [partialQtyInput, setPartialQtyInput] = useState({});
   const [resetHint, setResetHint] = useState({});
   const [errMsg, setErrMsg] = useState({});
   const [showAdd, setShowAdd] = useState(false);
@@ -127,6 +129,7 @@ export default function Dashboard() {
         },
         qty: r.offered_qty_kg, harga: r.price_per_kg, text: r.raw_message,
         score: r.match_score, dbStatus: r.status, overBudget: r.over_budget,
+        confirmedQty: r.confirmed_qty_kg,
       }))
       .sort((a, b) => b.score - a.score);
     setLiveRanked((s) => ({ ...s, [id]: rows }));
@@ -365,10 +368,10 @@ export default function Dashboard() {
   const tickerItems = replies[ingredient?.id] || [];
   const confirmedList = confirmedKeys[ingredient?.id] || [];
   const confirmedRows = ranked.filter((r) => confirmedList.includes(r.key));
-  const totalQty = confirmedRows.reduce((s, r) => s + r.qty, 0);
+  const totalQty = confirmedRows.reduce((s, r) => s + (r.confirmedQty ?? r.qty), 0);
   const demandSafe = Math.max(1, ingredient?.demand || 1);
   const progressPct = Math.min(100, (totalQty / demandSafe) * 100);
-  const localCost = confirmedRows.reduce((s, r) => s + r.qty * r.harga, 0);
+  const localCost = confirmedRows.reduce((s, r) => s + (r.confirmedQty ?? r.qty) * r.harga, 0);
   const avgLocal = totalQty ? localCost / totalQty : 0;
   const savingsPct = totalQty && ingredient
     ? ((ingredient.distributorPrice - avgLocal) / ingredient.distributorPrice) * 100 : 0;
@@ -382,7 +385,7 @@ export default function Dashboard() {
       const res = await fetch("/api/applications/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ applicationId: row.appId }),
+        body: JSON.stringify({ applicationId: row.appId, qty }),
       });
       if (res.ok) setConfirmedKeys((s) => ({ ...s, [id]: [...(s[id] || []), row.key] }));
       return;
@@ -882,13 +885,16 @@ export default function Dashboard() {
             {ranked.length === 0 && <div className="empty-hint">Daftar akan muncul setelah petani membalas.</div>}
             {ranked.map((r, i) => {
               const isConfirmed = confirmedList.includes(r.key);
+              const remaining = Math.max(0, demandSafe - totalQty);
+              const suggested = Math.min(remaining || r.qty, r.qty);
+              const inputVal = partialQtyInput[r.key] ?? suggested;
               return (
                 <div className="rank-row" key={r.key}>
                   <span className="rank-num">#{i + 1}</span>
                   <div className="rank-main">
                     <div className="name">{r.farmer.name} <span style={{ color: "var(--ink-soft)", fontWeight: 500 }}>· {r.farmer.desa}</span></div>
                     <div className="meta">
-                      <span className="mono">{r.qty}{ingredient.unit}</span>
+                      <span className="mono">{r.qty}{ingredient.unit} ditawarkan</span>
                       <span className="mono">{fmtRp(r.harga)}/{ingredient.unit}</span>
                       <span><MapPin size={10} style={{ verticalAlign: -1 }} /> {r.farmer.distanceKm}km</span>
                       <span>reliabilitas {r.farmer.reliability}%</span>
@@ -898,9 +904,26 @@ export default function Dashboard() {
                       <div className="hint-over">⚠ target sudah tercapai — konfirmasi ini akan melebihi kebutuhan</div>
                     )}
                   </div>
-                  <button className={"confirm-btn" + (isConfirmed ? " on" : "")} onClick={() => toggleConfirm(r)}>
-                    {isConfirmed ? "✓ Terkonfirmasi" : "Konfirmasi"}
-                  </button>
+                  {!isConfirmed && mode === "live" ? (
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <input
+                        type="number" min="0.01" max={r.qty} step="0.01"
+                        value={inputVal}
+                        onChange={(e) => setPartialQtyInput((s) => ({ ...s, [r.key]: e.target.value }))}
+                        style={{ width: 60, fontSize: 11.5, padding: "4px 6px", border: "1px solid var(--line)", borderRadius: 6 }}
+                      />
+                      <button
+                        className="confirm-btn"
+                        onClick={() => toggleConfirm(r, Math.min(Number(inputVal) || suggested, r.qty))}
+                      >
+                        Konfirmasi
+                      </button>
+                    </div>
+                  ) : (
+                    <button className={"confirm-btn" + (isConfirmed ? " on" : "")} onClick={() => toggleConfirm(r)}>
+                      {isConfirmed ? `✓ ${r.confirmedQty ?? r.qty}${ingredient.unit}` : "Konfirmasi"}
+                    </button>
+                  )}
                 </div>
               );
             })}

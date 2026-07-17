@@ -69,11 +69,12 @@ create table applications (
 );
 
 create table matches (
-  id              uuid primary key default gen_random_uuid(),
-  application_id  uuid references applications(id) unique not null,
-  confirmed_at    timestamptz default now(),
-  delivered       boolean,
-  delivered_at    timestamptz
+  id                 uuid primary key default gen_random_uuid(),
+  application_id     uuid references applications(id) unique not null,
+  confirmed_qty_kg   numeric,
+  confirmed_at       timestamptz default now(),
+  delivered          boolean,
+  delivered_at       timestamptz
 );
 
 create table wa_outbound_log (
@@ -128,8 +129,11 @@ select b.*,
       0.40 * (1 - least(b.distance_km, 30) / 30.0)
     + 0.35 * (bo.min_price / b.price_per_kg)
     + 0.25 * b.reliability_score
-  )::numeric, 3) as match_score
-from base b join bounds bo using (demand_item_id);
+  )::numeric, 3) as match_score,
+  m.confirmed_qty_kg
+from base b
+join bounds bo using (demand_item_id)
+left join matches m on m.application_id = b.application_id;
 
 create or replace function farmers_to_notify_demand(p_demand_id uuid, p_radius_km numeric default 30)
 returns table (farmer_id uuid, name text, wa_number text, distance_km numeric)
