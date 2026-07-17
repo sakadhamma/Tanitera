@@ -8,7 +8,7 @@ import {
   HelpCircle, Zap, FlaskConical, AlertTriangle, UtensilsCrossed, UserPlus,
 } from "lucide-react";
 import {
-  FARMER_PROFILES, DEFAULT_INGREDIENTS, UNITS, LOGISTICS,
+  FARMER_PROFILES, DEFAULT_INGREDIENTS, UNITS, LOGISTICS, getPickupSchedule,
   getRepliesFor, staggerDelay, shuffle, slugify, fmtRp, strToSeed,
 } from "@/lib/sim";
 import { MENU_PRESETS, PAX_PRESETS } from "@/lib/menus";
@@ -964,7 +964,7 @@ export default function Dashboard() {
               <h2><Truck size={16} /> Logistik penjemputan {demandMet ? "— kebutuhan terpenuhi" : "— sebagian terkonfirmasi"}</h2>
               <div className="logi-grid">
                 <div><div className="k">Agregator</div><div className="v">{LOGISTICS.aggregator}</div></div>
-                <div><div className="k">Jadwal jemput</div><div className="v">{LOGISTICS.schedule}</div></div>
+                <div><div className="k">Jadwal jemput</div><div className="v">{getPickupSchedule()}</div></div>
                 <div><div className="k">Titik kumpul</div><div className="v">{LOGISTICS.meetingPoint}</div></div>
               </div>
               <div className="logi-note">
