@@ -568,7 +568,7 @@ export default function Dashboard() {
           <div className="brand-icon"><Sprout size={22} /></div>
           <div>
             <h1>Dashboard SPPG</h1>
-            <p>{mode === "live" ? "Mode LIVE — WhatsApp & database sungguhan" : "Mode simulasi — data deterministik untuk demo"}</p>
+            <p>{mode === "live" ? "Mode LIVE: WhatsApp & database sungguhan" : "Mode simulasi: data deterministik untuk demo"}</p>
           </div>
         </div>
         <div className="header-stats">
@@ -620,9 +620,6 @@ export default function Dashboard() {
         >
           <UtensilsCrossed size={13} /> Kelola menu
         </button>
-        <span className="menu-note">
-          Memuat menu mengganti daftar bahan (tetap bisa diedit/ditambah setelahnya). Jumlah bahan = kebutuhan per porsi × pax.
-        </span>
         {menusErr && <span className="menu-note" style={{ color: "var(--clay)" }}>Menu dari Supabase gagal dimuat ({menusErr}) — pakai preset offline dulu.</span>}
       </div>
 
@@ -818,7 +815,7 @@ export default function Dashboard() {
                 value={ingredient.distributorPrice}
                 onChange={(e) => updateIngredient(ingredient.id, { distributorPrice: Math.max(1, Number(e.target.value) || 1) })}
               />
-              /{ingredient.unit}, {ingredient.distributorDays} hari · sekaligus jadi batas harga (budget cap)
+              /{ingredient.unit} - sekaligus menjadi batas harga (budget cap)
             </div>
             {resetHint[ingredient.id] && (
               <div className="hint"><AlertTriangle size={13} /> Harga/satuan diubah — balasan lama di-reset, kirim ulang permintaan.</div>
@@ -856,7 +853,7 @@ export default function Dashboard() {
             <h2><MessageCircle size={16} /> Papan balasan WhatsApp</h2>
             <p className="sub">
               {mode === "live"
-                ? "Semua balasan untuk permintaan ini — satu pesan petani bisa berisi beberapa bahan sekaligus"
+                ? "Semua balasan untuk permintaan ini"
                 : "Bahasa santai petani → data terstruktur. Balasan kosong & ambigu ikut ditampilkan supaya kelihatan AI-nya menyaring."}
             </p>
             <div className="ticker-list">
@@ -899,11 +896,7 @@ export default function Dashboard() {
           </div>
 
           <div className="card">
-            <h2><Users size={16} /> Rekomendasi petani (terurut AI)</h2>
-            <p className="sub">
-              Jarak 40% (absolut, 0–30km) · harga 35% (rasio ke termurah) · reliabilitas 25%
-              {mode === "live" ? " — dihitung PostGIS di database" : ""}
-            </p>
+            <h2><Users size={16} /> Rekomendasi petani (terurut dari AI)</h2>
             <div className="progress-track"><div className="progress-fill" style={{ width: `${progressPct}%` }} /></div>
             <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: -8, marginBottom: 6 }}>
               {totalQty}/{ingredient.demand} {ingredient.unit} terkonfirmasi
@@ -1023,7 +1016,7 @@ export default function Dashboard() {
       </div>
 
       <div style={{ marginTop: 22, textAlign: "center", fontSize: 11.5, color: "var(--ink-soft)" }}>
-        Tanitera
+        Tanitera - Menanam Harapan, Menuai Kesejahteraan 
       </div>
     </div>
   );

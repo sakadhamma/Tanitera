@@ -133,7 +133,7 @@ export default function Farmers() {
         <div className="farm-icon"><Sprout size={22} /></div>
         <div>
           <h1>Kelola Petani</h1>
-          <p>Daftarkan petani baru — data dari penyuluh/Gapoktan, diinput manual oleh SPPG</p>
+          <p>Daftarkan petani baru</p>
         </div>
       </div>
 
@@ -168,7 +168,7 @@ export default function Farmers() {
               <div><span className="field-label">Gapoktan (opsional)</span>
                 <input className="field-input" placeholder="Gapoktan Mekar Tani" value={form.gapoktan}
                   onChange={(e) => setForm((f) => ({ ...f, gapoktan: e.target.value }))} /></div>
-              <div><span className="field-label">Komoditas (opsional, pisahkan koma — kosong = terima semua blast)</span>
+              <div><span className="field-label">Komoditas (opsional, pisahkan koma; kosong = terima semua blast)</span>
                 <input className="field-input" placeholder="wortel, tomat" value={form.commodities}
                   onChange={(e) => setForm((f) => ({ ...f, commodities: e.target.value }))} /></div>
               {msg && <div className={"msg " + (msg.ok ? "ok" : "err")}>
@@ -189,7 +189,6 @@ export default function Farmers() {
 
           <div className="card">
             <h2><Users size={16} /> Petani terdaftar ({farmers.length})</h2>
-            <p className="sub">Reliabilitas mulai 0.70, naik/turun otomatis dari riwayat pengiriman</p>
             <div className="list-scroll">
               {farmers.map((f) => (
                 <div className={"farmer-row" + (editingId === f.id ? " editing" : "")} key={f.id}>

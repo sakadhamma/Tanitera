@@ -163,7 +163,7 @@ export default function Overview() {
 
           <div className="card">
             <h2><Users size={16} /> Item terkonfirmasi per komoditas</h2>
-            <p className="sub">Dihitung dari permintaan terbaru tiap komoditas (bukan riwayat lama)</p>
+            <p className="sub">Dihitung dari permintaan terbaru tiap komoditas</p>
             {overview.map((o) => {
               const pct = o.targetQty > 0 ? Math.min(100, Math.round((o.confirmedQty / o.targetQty) * 100)) : 100;
               const met = o.confirmedQty >= o.targetQty;
