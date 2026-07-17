@@ -87,7 +87,7 @@ function regexFallback(msg: string): ParsedReply {
 
   const items: ParsedItem[] = [];
   for (const seg of m.split(/[,.;\n]+/)) {
-    const qty = seg.match(/(\d+(?:\.\d+)?)\s*(?:kg|kilo|ikat|buah)\b/);
+    const qty = seg.match(/\b(\d+(?:\.\d+)?)\b/);
     if (!qty) continue;
     const shorthand = seg.match(/(\d+(?:\.\d+)?)\s*(rb|ribu|k\b)/);
     let priceVal: number | null = null;
