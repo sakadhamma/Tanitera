@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, UserPlus, Users, CheckCircle2, AlertTriangle, Sprout } from "lucide-react";
+import { ArrowLeft, UserPlus, Users, CheckCircle2, AlertTriangle, Sprout, Pencil, X, Trash2 } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase";
 
 const KECAMATAN = [
@@ -17,6 +17,7 @@ export default function Farmers() {
   const [form, setForm] = useState({ name: "", wa_number: "", kecamatan: KECAMATAN[0], gapoktan: "", commodities: "" });
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null); // {ok, text}
+  const [editingId, setEditingId] = useState(null); // null = adding new farmer
 
   const load = useCallback(async () => {
     if (!supabase) return;
@@ -37,21 +38,59 @@ export default function Farmers() {
     }
     setBusy(true); setMsg(null);
     try {
-      const res = await fetch("/api/farmers", {
-        method: "POST",
+      const url = editingId ? `/api/farmers/${editingId}` : "/api/farmers";
+      const method = editingId ? "PUT" : "POST";
+      const res = await fetch(url, {
+        method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Gagal menyimpan");
-      setMsg({ ok: true, text: `${form.name} terdaftar. Blast berikutnya otomatis menjangkau petani ini.` });
+      setMsg({
+        ok: true,
+        text: editingId
+          ? `${form.name} diperbarui.`
+          : `${form.name} terdaftar. Blast berikutnya otomatis menjangkau petani ini.`,
+      });
       setForm({ name: "", wa_number: "", kecamatan: form.kecamatan, gapoktan: "", commodities: "" });
+      setEditingId(null);
       load();
     } catch (e) {
       setMsg({ ok: false, text: String(e.message || e) });
     } finally {
       setBusy(false);
     }
+  };
+
+  const startEdit = (f) => {
+    setEditingId(f.id);
+    setMsg(null);
+    setForm({
+      name: f.name,
+      wa_number: f.wa_number,
+      kecamatan: f.kecamatan,
+      gapoktan: f.gapoktan || "",
+      commodities: (f.farmer_commodities || []).map((fc) => fc.commodities?.name).filter(Boolean).join(", "),
+    });
+  };
+
+  const deleteFarmer = async (f) => {
+    if (!confirm(`Hapus ${f.name}? Tidak bisa dibatalkan.`)) return;
+    const res = await fetch(`/api/farmers/${f.id}`, { method: "DELETE" });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setMsg({ ok: false, text: data.error || "Gagal menghapus petani" });
+      return;
+    }
+    if (editingId === f.id) cancelEdit(); // don't leave the form pointed at a deleted farmer
+    load();
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setMsg(null);
+    setForm({ name: "", wa_number: "", kecamatan: KECAMATAN[0], gapoktan: "", commodities: "" });
   };
 
   return (
@@ -74,10 +113,13 @@ export default function Farmers() {
         .msg.err { background:#F3D5C8; color:var(--clay); }
         .farmer-row { display:flex; justify-content:space-between; gap:10px; padding:10px 0; border-top:1px solid var(--line); font-size:12.5px; }
         .farmer-row:first-of-type { border-top:none; }
+        .farmer-row.editing { background:#FBF6E8; border-radius:8px; padding-left:8px; padding-right:8px; }
         .farmer-row .n { font-weight:700; color:var(--sawah-deep); }
         .farmer-row .d { color:var(--ink-soft); font-size:11.5px; margin-top:2px; }
         .farmer-row .comm { font-size:10.5px; color:var(--gold-deep); font-weight:700; margin-top:2px; }
         .farmer-row .rel { font-family:var(--font-spacemono),monospace; font-weight:700; color:var(--sawah-deep); white-space:nowrap; }
+        .edit-btn { border:1.5px solid var(--line); background:transparent; color:var(--ink-soft); border-radius:999px; padding:5px 7px; cursor:pointer; display:flex; align-items:center; font-family:inherit; }
+        .edit-btn:hover { border-color:var(--sawah); color:var(--sawah-deep); }
         .list-scroll { max-height:520px; overflow-y:auto; padding-right:4px; }
       `}</style>
 
@@ -107,8 +149,10 @@ export default function Farmers() {
       ) : (
         <div className="farm-grid">
           <div className="card">
-            <h2><UserPlus size={16} /> Tambah petani</h2>
-            <p className="sub">Petani baru langsung ikut ter-blast di permintaan berikutnya (radius 30km)</p>
+            <h2><UserPlus size={16} /> {editingId ? "Edit petani" : "Tambah petani"}</h2>
+            <p className="sub">
+              {editingId ? "Perbarui data petani ini — nomor WA lama otomatis berhenti dipakai" : "Petani baru langsung ikut ter-blast di permintaan berikutnya (radius 30km)"}
+            </p>
             <div className="form-col">
               <div><span className="field-label">Nama</span>
                 <input className="field-input" placeholder="Pak Dadang" value={form.name}
@@ -130,9 +174,16 @@ export default function Farmers() {
               {msg && <div className={"msg " + (msg.ok ? "ok" : "err")}>
                 {msg.ok ? <CheckCircle2 size={13} /> : <AlertTriangle size={13} />} {msg.text}
               </div>}
-              <button className="btn btn-primary" disabled={busy} onClick={submit}>
-                <UserPlus size={15} /> {busy ? "Menyimpan…" : "Daftarkan petani"}
-              </button>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button className="btn btn-primary" disabled={busy} onClick={submit}>
+                  <UserPlus size={15} /> {busy ? "Menyimpan…" : editingId ? "Simpan perubahan" : "Daftarkan petani"}
+                </button>
+                {editingId && (
+                  <button className="btn-ghost" disabled={busy} onClick={cancelEdit}>
+                    <X size={14} /> Batal
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
@@ -141,7 +192,7 @@ export default function Farmers() {
             <p className="sub">Reliabilitas mulai 0.70, naik/turun otomatis dari riwayat pengiriman</p>
             <div className="list-scroll">
               {farmers.map((f) => (
-                <div className="farmer-row" key={f.id}>
+                <div className={"farmer-row" + (editingId === f.id ? " editing" : "")} key={f.id}>
                   <div>
                     <div className="n">{f.name}</div>
                     <div className="d">{f.wa_number} · {f.kecamatan}{f.gapoktan ? ` · ${f.gapoktan}` : ""}</div>
@@ -149,7 +200,15 @@ export default function Farmers() {
                       <div className="comm">{f.farmer_commodities.map((fc) => fc.commodities?.name).filter(Boolean).join(", ")}</div>
                     )}
                   </div>
-                  <div className="rel">{Number(f.reliability_score).toFixed(2)}</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div className="rel">{Number(f.reliability_score).toFixed(2)}</div>
+                    <button className="edit-btn" onClick={() => startEdit(f)} title="Edit petani ini">
+                      <Pencil size={12} />
+                    </button>
+                    <button className="edit-btn" onClick={() => deleteFarmer(f)} title="Hapus petani ini">
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
                 </div>
               ))}
               {farmers.length === 0 && <p className="sub">Belum ada petani — jalankan seed schema.sql atau tambah manual.</p>}

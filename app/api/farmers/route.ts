@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 
-const KECAMATAN_COORDS: Record<string, [number, number]> = {
+export const KECAMATAN_COORDS: Record<string, [number, number]> = {
   "Garut Kota":     [107.9087, -7.2278],
   "Cilawu":         [107.9400, -7.2800],
   "Bayongbong":     [107.8400, -7.3000],
@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ ok: true, farmerId: farmer.id });
 }
 
-function normalizePhone(p: string): string {
+export function normalizePhone(p: string): string {
   const digits = p.replace(/[^\d+]/g, "");
   if (!digits) return "";
   if (digits.startsWith("+")) return digits;
