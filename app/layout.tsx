@@ -19,9 +19,9 @@ const spaceMono = Space_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "TaniSPPG — Dari sawah ke dapur MBG",
+  title: "Tanitera - Menanam Harapan, Menuai Kesejahteraan",
   description:
-    "Menghubungkan dapur SPPG program MBG dengan petani lokal Garut lewat WhatsApp.",
+    "Menghubungkan dapur SPPG program MBG dengan petani lokal Garut melalui WhatsApp.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
