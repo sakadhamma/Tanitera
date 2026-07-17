@@ -2,10 +2,24 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 
 const LOGISTICS = {
-  aggregator: "Gapoktan Mekar Tani",
-  schedule: "Kamis pagi (06.00 WIB)",
+  aggregator: "SPPG Garut Pusat",
   meetingPoint: "Balai Desa Cilawu",
 };
+
+const HARI = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
+
+function getPickupSchedule() {
+  const nowUtc = new Date();
+  const nowWib = new Date(nowUtc.getTime() + 7 * 60 * 60 * 1000);
+  const pickupWib = new Date(nowWib);
+  pickupWib.setUTCDate(nowWib.getUTCDate() + 1);
+
+  const hari = HARI[pickupWib.getUTCDay()];
+  const tanggal = pickupWib.getUTCDate();
+  const bulan = pickupWib.toLocaleDateString("id-ID", { month: "long", timeZone: "UTC" });
+
+  return `${hari}, ${tanggal} ${bulan} pukul 06.00 WIB`;
+}
 
 export async function POST(req: NextRequest) {
   const { applicationId, qty } = await req.json();
@@ -35,6 +49,7 @@ export async function POST(req: NextRequest) {
 
   const farmer: any = app.farmers;
   const total = confirmedQty * app.price_per_kg;
+  const schedule = getPickupSchedule();
   if (farmer?.wa_number) {
     try {
       await fetch("https://api.fonnte.com/send", {
@@ -51,11 +66,11 @@ export async function POST(req: NextRequest) {
             (confirmedQty < app.offered_qty_kg
               ? `(Dari total tawaran ${app.offered_qty_kg}, yang diambil ${confirmedQty} sesuai kebutuhan.)\n`
               : ``) +
-            `Penjemputan: ${LOGISTICS.schedule} oleh ${LOGISTICS.aggregator}, titik kumpul ${LOGISTICS.meetingPoint}.`,
+            `Penjemputan: ${schedule} oleh ${LOGISTICS.aggregator}, titik kumpul ${LOGISTICS.meetingPoint}.`,
         }),
       });
     } catch { /* non-fatal */ }
   }
 
-  return NextResponse.json({ ok: true, applicationId: app.id, confirmedQty });
+  return NextResponse.json({ ok: true, applicationId: app.id, confirmedQty, schedule });
 }
