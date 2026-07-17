@@ -135,6 +135,23 @@ from base b
 join bounds bo using (demand_item_id)
 left join matches m on m.application_id = b.application_id;
 
+-- overview table (confirmed)
+create or replace view confirmed_matches as
+select
+  m.id as match_id, m.confirmed_qty_kg, m.confirmed_at, m.delivered, m.delivered_at,
+  a.id as application_id, a.price_per_kg, a.offered_qty_kg,
+  f.id as farmer_id, f.name as farmer_name, f.kecamatan, f.gapoktan, f.wa_number,
+  c.id as commodity_id, c.name as commodity, c.unit,
+  di.id as demand_item_id, di.qty_kg as target_qty_kg, di.max_price_per_kg,
+  d.id as demand_id, d.week_start, d.pax, d.created_at as demand_created_at
+from matches m
+join applications a  on a.id = m.application_id
+join farmers f        on f.id = a.farmer_id
+join demand_items di  on di.id = a.demand_item_id
+join commodities c    on c.id = di.commodity_id
+join demands d        on d.id = di.demand_id
+order by m.confirmed_at desc;
+
 create or replace function farmers_to_notify_demand(p_demand_id uuid, p_radius_km numeric default 30)
 returns table (farmer_id uuid, name text, wa_number text, distance_km numeric)
 language sql stable as $$

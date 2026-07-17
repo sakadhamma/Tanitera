@@ -6,6 +6,7 @@ import {
   Sprout, MapPin, Send, Sparkles, CheckCircle2, ArrowLeft, MessageCircle,
   Radio, RotateCcw, Users, Wheat, Plus, Trash2, Pencil, Truck, XCircle,
   HelpCircle, Zap, FlaskConical, AlertTriangle, UtensilsCrossed, UserPlus,
+  ClipboardList,
 } from "lucide-react";
 import {
   FARMER_PROFILES, DEFAULT_INGREDIENTS, UNITS, LOGISTICS, getPickupSchedule,
@@ -550,6 +551,7 @@ export default function Dashboard() {
         <div className="topbar-left">
           <button className="back-btn" onClick={() => router.push("/")}><ArrowLeft size={14} /> Landing</button>
           <button className="back-btn" onClick={() => router.push("/farmers")}><UserPlus size={14} /> Kelola petani</button>
+          <button className="back-btn" onClick={() => router.push("/overview")}><ClipboardList size={14} /> Overview &amp; Riwayat</button>
         </div>
         <div className="mode-toggle" title="Simulasi = data lokal deterministik. Live = Supabase + WhatsApp + Gemini.">
           <button className={"mode-btn" + (mode === "sim" ? " on" : "")} onClick={() => setMode("sim")}>
