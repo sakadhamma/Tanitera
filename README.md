@@ -173,7 +173,7 @@ curl -X POST https://api.fonnte.com/send \
 
 ## Deploy
 
-Proyek ini siap deploy langsung ke [Vercel](https://vercel.com), import repo, tambahkan environment variables di atas, deploy. Next.js App Router menangani halaman statis dan API routes serverless dalam satu deployment yang sama.
+Proyek ini siap deploy langsung ke [Vercel](https://vercel.com) -> import repo, tambahkan environment variables di atas, deploy. Next.js App Router menangani halaman statis dan API routes serverless dalam satu deployment yang sama.
 
 ## Mode Simulasi vs Live
 
