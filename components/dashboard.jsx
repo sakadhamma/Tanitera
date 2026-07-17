@@ -148,6 +148,22 @@ export default function Dashboard() {
     }));
   }, [supabase]);
 
+  // syncing between devices
+  const resolveLatestTarget = useCallback(async (commodityName) => {
+    if (!supabase) return null;
+    const name = commodityName.trim().toLowerCase();
+    const { data: comm } = await supabase.from("commodities").select("id").ilike("name", name).maybeSingle();
+    if (!comm) return null;
+    const { data: item } = await supabase
+      .from("demand_items")
+      .select("id, demand_id, demands!inner(created_at)")
+      .eq("commodity_id", comm.id)
+      .order("created_at", { foreignTable: "demands", ascending: false })
+      .limit(1)
+      .maybeSingle();
+    return item ? { itemId: item.id, demandId: item.demand_id } : null;
+  }, [supabase]);
+
   const subscribeLive = useCallback((id, itemId, demandId) => {
     if (!supabase) return;
     closeChannelFor(id);
@@ -254,15 +270,24 @@ export default function Dashboard() {
     setHydrated(true);
   }, []);
 
+  //resync so that other devices have the same data
   useEffect(() => {
-    if (!hydrated || !supabase) return;
-    for (const [id, itemId] of Object.entries(liveItemsRef.current)) {
-      const demandId = liveDemandsRef.current[id];
-      if (!itemId || !demandId) continue;
-      subscribeLive(id, itemId, demandId);
-      refetchLive(id, itemId, demandId);
-    }
-  }, [hydrated]);
+    if (!hydrated || !supabase || mode !== "live") return;
+    let cancelled = false;
+    (async () => {
+      for (const ing of ingredients) {
+        const target = await resolveLatestTarget(ing.name);
+        if (cancelled || !target) continue;
+        liveItemsRef.current[ing.id] = target.itemId;
+        liveDemandsRef.current[ing.id] = target.demandId;
+        setStatus((s) => (s[ing.id] && s[ing.id] !== "idle" ? s : { ...s, [ing.id]: "receiving" }));
+        subscribeLive(ing.id, target.itemId, target.demandId);
+        refetchLive(ing.id, target.itemId, target.demandId);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, mode]);
 
   useEffect(() => {
     if (!hydrated) return;
